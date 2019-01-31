@@ -3,7 +3,7 @@
 ###Kiri Daust, July 2018
 
 ###Model aSMR <-> rSMR
-.libPaths("E:/R packages")
+.libPaths("E:/R packages351")
 library(tcltk)
 library(reshape2)
 library(foreach)
@@ -65,93 +65,18 @@ wireframe(zfit)
 layout(rbind(c(1,2,3), c(4,5,6), c(7,8,9)),widths=c(1,1,1), heights =c(1,1,1), respect=TRUE)
 par(mai = c(0.5, 0.5, 0.2, 0.2)) #speSEfies the margin size in inches
 
-###Create rSMR -> aSMR crosswalk######################
 wd <- tk_choose.dir(); setwd(wd)
 
-####This part includes removing monthly CMD based on surplus (doesn't make much difference)#####
-allDat <- fread("BGCv10_100Pt_Rnd_Dat.csv", data.table = FALSE) ###Climate data
-temp <- allDat[,grep("CMD",colnames(allDat))]
-allDat <- allDat[,c("ID2","PPT_at","PPT_wt","PAS")]
-allDat <- cbind(allDat,temp)
-allDat$PPT.dorm <- allDat$PPT_at + allDat$PPT_wt
-CMD <- aggregate( . ~ ID2, allDat, mean) ##
-CMD$CMDKiri <- ifelse(CMD$PAS > 1000, CMD$CMD06+CMD$CMD07+CMD$CMD08+CMD$CMD09, 
-                  CMD$CMD02+CMD$CMD03+CMD$CMD04+CMD$CMD05+CMD$CMD06+CMD$CMD07+CMD$CMD08+CMD$CMD09)
-CMD$CMD <- CMD$CMDKiri
-CMD <- CMD[,c("ID2","CMD","PPT.dorm")]
-CMD$Def <- 275 - CMD$PPT.dorm
-CMD$Def[CMD$Def < 0] <- 0
-CMD$CMD <- CMD$CMD + CMD$Def
-CMD <- CMD[,c("ID2","CMD")]
-###_____________________________________________####
-
-###Now just with ppt#######
-allDat <- fread("BGCv10_100Pt_Rnd_Dat.csv", data.table = FALSE)
-allDat <- allDat[,c("ID2","PPT_at","PPT_wt","CMD")]
-allDat$PPT.dorm <- allDat$PPT_at + allDat$PPT_wt
-CMD <- aggregate(cbind(PPT.dorm, CMD) ~ ID2, allDat, mean)###Mean by BGC
-
-CMD$Def <- 250 - CMD$PPT.dorm ###275 seems to work well
-CMD$Def[CMD$Def < 0] <- 0
-CMD$CMD <- CMD$CMD + CMD$Def
-CMD <- CMD[,c("ID2","CMD")]
-
-###for each wetter rSMR, previous CMD is divided by 2
-for (i in 1:3){
-  CMD[,2+i] <- CMD[,1+i]/2
-}
-colnames(CMD) <- c("BGC","SMR4","SMR5","SMR6","SMR7")
-CMD <- CMD[,c(1,3:5,2)]
-
-###for each drier rSMR, previous CMD + 75
-for (i in 1:4){
-  CMD[,length(CMD)+1] <- CMD[,length(CMD)] + 75
-}
-colnames(CMD)[6:9] <- c("SMR3","SMR2","SMR1","SMR0")
-
-CMD <- CMD[,order(colnames(CMD))]
-
-#############################################Now calculate aSMR with ruleset
-rules <- read.csv("aSMR_Rules.csv")
-
-aSMRClass <- function(x){
-  for(i in 1:length(ruleSelect$CMD)){
-    if(x < ruleSelect$CMD[i+1]){
-      x <- ruleSelect$aSMR[i]
-      break
-    }
-  }
-  return(x)
-}
-
-###Calculate values based on rules###
-test <- foreach(SMR = colnames(CMD)[-1], .combine = cbind) %do% {
-  temp <- CMD[,SMR]
-  if(SMR == "SMR7"){
-    ruleSelect <- rules[rules$SMRLevel == 7,-1]
-  }else if(SMR == "SMR6"){
-    ruleSelect <- rules[rules$SMRLevel == 6,-1]
-  }else if(SMR == "SMR5"){
-    ruleSelect <- rules[rules$SMRLevel == 5,-1]
-  }else{
-    ruleSelect <- rules[rules$SMRLevel == 0,-1]
-  }
-  out <- sapply(temp,FUN = aSMRClass)
-  out
-}
-
-
-test <- as.data.frame(test)
-test <- cbind(CMD$BGC, test)
-colnames(test) <- colnames(CMD)
-test$BGC <- gsub("[[:space:]]","",test$BGC)
-SMRCross <- melt(test) ###aSMR lookup
+####Read in aSMR x rSMR matrix (produced from aSMR x rSMR script and edited)
+SMR <- read.csv(file.choose())###aSMR x rSMR matrix
+SMRCross <- melt(SMR[-1]) ###aSMR lookup
+colnames(SMRCross) <- c("BGC", "rSMR", "aSMRC")
 
 ####Create SI models for each species####
 ###__________________________________________________________________#####
 
 SppList <- c("Pl","Sx","Bl","Cw","Hw","Fd","Lw","Py")
-
+#SppList ="Fd"
 Eda <- read.csv(file.choose())###Edatopic table
 
 colnames(SMRCross) <- c("BGC", "rSMR", "aSMR")
@@ -235,10 +160,10 @@ modelList <- foreach(Spp = SppList, .combine = c) %do% {
 #####Determine equation relating temp and SI####
 #############################################
 
-dat <- fread("BGCv10_100Pt_Rnd_Dat.csv", data.table = FALSE)
+dat <- fread("BECv11_100Pt_Rnd_Normal_1961_1990MSY.csv", data.table = FALSE)
 dat <- dat[,c(2,5,239,230,183,184)]
 dat$ID2 <- gsub("[[:space:]]","",dat$ID2)
-
+mods <- list(Pl = fit.pl, Sx = fit.sx, Fd = fit.fd, Bl = fit.bl, Lw = fit.lw, Cw = fit.cw) ##list of polynomial models
 edaPos <- list(A = c("C",5),B = c("B",3),C = c("D",6)) ###Which edatopic positions?
 
 ###Calculate slopes and intercepts
@@ -308,7 +233,7 @@ slopes <- foreach(Spp = SppList, .combine = rbind) %do% {##foreach species
 temp <- read.csv(file.choose())###Need to select BGC Units  (currenlty reading in BulkleyTSA predictions)
 missing <- unique(as.character(temp$SS_NoSpace)) 
 
-dat <- fread("BGCv10_100Pt_Rnd_Dat.csv", data.table = FALSE) ###Climate data
+dat <- fread("BECv11_100Pt_Rnd_Normal_1961_1990MSY.csv", data.table = FALSE) ###Climate data
 dat <- dat[,c(2,5,239,230,183,184)]
 dat$ID2 <- gsub("[[:space:]]","",dat$ID2)
 
@@ -363,7 +288,7 @@ SIFill <- foreach(Spp = SppList, .combine = rbind) %do% {
   fill
 }
 
-write.csv(SIFill,"PredSIforPort_Sept18.csv", row.names = FALSE)
+write.csv(SIFill,"PredSIforPort_test.csv", row.names = FALSE)
 
 #####Now same as above but for each edatopic cell########################################
 #########################################################################################
@@ -371,7 +296,7 @@ sibec <- read.xlsx("SIBEC_for_Portfolio2.xlsx", sheet = 1)
 sibec <- sibec[sibec$TreeSpp == "Lw",]
 sibec <- sibec[!is.na(sibec$TreeSpp),]
 Spp <- "Lw"
-
+SS="BWBSdk/101"
 fill <- foreach(SS = missing, .combine = rbind) %do% {
   SIeda <- Eda[Eda$SS_NoSpace == SS,-c(5,6)]
   if(length(SIeda$Edatopic) > 0){
@@ -557,3 +482,86 @@ ggplot(ddBGC, aes(x = Tave_sm, y = out, colour = RefGuide, label = BGC))+
   geom_point()+
   geom_text_repel(size = 2.6)+
   scale_y_continuous(limits = c(-5,30))
+
+####################See aSMR_X_rSMR script for this
+###Create rSMR -> aSMR crosswalk######################
+wd <- tk_choose.dir(); setwd(wd)
+
+####This part includes removing monthly CMD based on surplus (doesn't make much difference)#####
+allDat <- fread("BECv11_100Pt_Rnd_Normal_1961_1990MSY.csv", data.table = FALSE) ###Climate data
+temp <- allDat[,grep("CMD",colnames(allDat))]
+allDat <- allDat[,c("ID2","PPT_at","PPT_wt","PAS")]
+allDat <- cbind(allDat,temp)
+allDat$PPT.dorm <- allDat$PPT_at + allDat$PPT_wt
+CMD <- aggregate( . ~ ID2, allDat, mean) ##
+CMD$CMDKiri <- ifelse(CMD$PAS > 1000, CMD$CMD06+CMD$CMD07+CMD$CMD08+CMD$CMD09, 
+                      CMD$CMD02+CMD$CMD03+CMD$CMD04+CMD$CMD05+CMD$CMD06+CMD$CMD07+CMD$CMD08+CMD$CMD09)
+CMD$CMD <- CMD$CMDKiri
+CMD <- CMD[,c("ID2","CMD","PPT.dorm")]
+CMD$Def <- 275 - CMD$PPT.dorm
+CMD$Def[CMD$Def < 0] <- 0
+CMD$CMD <- CMD$CMD + CMD$Def
+CMD <- CMD[,c("ID2","CMD")]
+###_____________________________________________####
+
+###Now just with ppt#######
+allDat <- fread("BECv11_100Pt_Rnd_Normal_1961_1990MSY.csv", data.table = FALSE)
+allDat <- allDat[,c("ID2","PPT_at","PPT_wt","CMD")]
+allDat$PPT.dorm <- allDat$PPT_at + allDat$PPT_wt
+CMD <- aggregate(cbind(PPT.dorm, CMD) ~ ID2, allDat, mean)###Mean by BGC
+
+CMD$Def <- 250 - CMD$PPT.dorm ###275 seems to work well
+CMD$Def[CMD$Def < 0] <- 0
+CMD$CMD <- CMD$CMD + CMD$Def
+CMD <- CMD[,c("ID2","CMD")]
+
+###for each wetter rSMR, previous CMD is divided by 2
+for (i in 1:3){
+  CMD[,2+i] <- CMD[,1+i]/2
+}
+colnames(CMD) <- c("BGC","SMR4","SMR5","SMR6","SMR7")
+CMD <- CMD[,c(1,3:5,2)]
+
+###for each drier rSMR, previous CMD + 75
+for (i in 1:4){
+  CMD[,length(CMD)+1] <- CMD[,length(CMD)] + 75
+}
+colnames(CMD)[6:9] <- c("SMR3","SMR2","SMR1","SMR0")
+
+CMD <- CMD[,order(colnames(CMD))]
+
+#############################################Now calculate aSMR with ruleset
+rules <- read.csv("aSMR_Rules.csv")
+
+aSMRClass <- function(x){
+  for(i in 1:length(ruleSelect$CMD)){
+    if(x < ruleSelect$CMD[i+1]){
+      x <- ruleSelect$aSMR[i]
+      break
+    }
+  }
+  return(x)
+}
+
+###Calculate values based on rules###
+test <- foreach(SMR = colnames(CMD)[-1], .combine = cbind) %do% {
+  temp <- CMD[,SMR]
+  if(SMR == "SMR7"){
+    ruleSelect <- rules[rules$SMRLevel == 7,-1]
+  }else if(SMR == "SMR6"){
+    ruleSelect <- rules[rules$SMRLevel == 6,-1]
+  }else if(SMR == "SMR5"){
+    ruleSelect <- rules[rules$SMRLevel == 5,-1]
+  }else{
+    ruleSelect <- rules[rules$SMRLevel == 0,-1]
+  }
+  out <- sapply(temp,FUN = aSMRClass)
+  out
+}
+
+
+test <- as.data.frame(test)
+test <- cbind(CMD$BGC, test)
+colnames(test) <- colnames(CMD)
+test$BGC <- gsub("[[:space:]]","",test$BGC)
+SMRCross <- melt(test) ###aSMR lookup
