@@ -76,8 +76,9 @@ colnames(SMRCross) <- c("BGC", "rSMR", "aSMRC")
 ###__________________________________________________________________#####
 
 SppList <- c("Pl","Sx","Bl","Cw","Hw","Fd","Lw","Py")
-#SppList ="Fd"
-Eda <- read.csv(file.choose())###Edatopic table
+SppList ="Fd"
+Eda <- read.csv("Edatopic_v10.7.csv")
+#Eda <- read.csv(file.choose())###Edatopic table
 
 colnames(SMRCross) <- c("BGC", "rSMR", "aSMR")
 SMRCross$rSMR <- gsub("[[:alpha:]]","", SMRCross$rSMR)
@@ -160,10 +161,12 @@ modelList <- foreach(Spp = SppList, .combine = c) %do% {
 #####Determine equation relating temp and SI####
 #############################################
 
-dat <- fread("BECv11_100Pt_Rnd_Normal_1961_1990MSY.csv", data.table = FALSE)
+dat <- fread("ALLv11_500Pt_Normal_1961_1990MSY_REDUCED.csv", data.table = FALSE)
 dat <- dat[,c(2,5,239,230,183,184)]
 dat$ID2 <- gsub("[[:space:]]","",dat$ID2)
 mods <- list(Pl = fit.pl, Sx = fit.sx, Fd = fit.fd, Bl = fit.bl, Lw = fit.lw, Cw = fit.cw) ##list of polynomial models
+mods <- list(fit.poly) ##list of polynomial models
+
 edaPos <- list(A = c("C",5),B = c("B",3),C = c("D",6)) ###Which edatopic positions?
 
 ###Calculate slopes and intercepts
@@ -233,7 +236,7 @@ slopes <- foreach(Spp = SppList, .combine = rbind) %do% {##foreach species
 temp <- read.csv(file.choose())###Need to select BGC Units  (currenlty reading in BulkleyTSA predictions)
 missing <- unique(as.character(temp$SS_NoSpace)) 
 
-dat <- fread("BECv11_100Pt_Rnd_Normal_1961_1990MSY.csv", data.table = FALSE) ###Climate data
+dat <- fread("ALLv11_500Pt_Normal_1961_1990MSY_REDUCED.csv", data.table = FALSE) ###Climate data
 dat <- dat[,c(2,5,239,230,183,184)]
 dat$ID2 <- gsub("[[:space:]]","",dat$ID2)
 
@@ -488,9 +491,9 @@ ggplot(ddBGC, aes(x = Tave_sm, y = out, colour = RefGuide, label = BGC))+
 wd <- tk_choose.dir(); setwd(wd)
 
 ####This part includes removing monthly CMD based on surplus (doesn't make much difference)#####
-allDat <- fread("BECv11_100Pt_Rnd_Normal_1961_1990MSY.csv", data.table = FALSE) ###Climate data
+allDat <- fread("ALLv11_500Pt_Normal_1961_1990MSY_REDUCED.csv", data.table = FALSE) ###Climate data
 temp <- allDat[,grep("CMD",colnames(allDat))]
-allDat <- allDat[,c("ID2","PPT_at","PPT_wt","PAS")]
+allDat <- allDat[,c("ID2","PPT_at","PPT_wt","PAS", "Tave_sp", "Tave_sm", "DD5", "MAP")]
 allDat <- cbind(allDat,temp)
 allDat$PPT.dorm <- allDat$PPT_at + allDat$PPT_wt
 CMD <- aggregate( . ~ ID2, allDat, mean) ##
@@ -505,7 +508,7 @@ CMD <- CMD[,c("ID2","CMD")]
 ###_____________________________________________####
 
 ###Now just with ppt#######
-allDat <- fread("BECv11_100Pt_Rnd_Normal_1961_1990MSY.csv", data.table = FALSE)
+allDat <- fread("ALLv11_500Pt_Normal_1961_1990MSY_REDUCED.csv", data.table = FALSE)
 allDat <- allDat[,c("ID2","PPT_at","PPT_wt","CMD")]
 allDat$PPT.dorm <- allDat$PPT_at + allDat$PPT_wt
 CMD <- aggregate(cbind(PPT.dorm, CMD) ~ ID2, allDat, mean)###Mean by BGC
