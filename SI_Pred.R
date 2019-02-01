@@ -76,7 +76,7 @@ colnames(SMRCross) <- c("BGC", "rSMR", "aSMRC")
 ###__________________________________________________________________#####
 
 SppList <- c("Pl","Sx","Bl","Cw","Hw","Fd","Lw","Py")
-SppList ="Fd"
+SppList ="Bc"
 Eda <- read.csv("Edatopic_v10.7.csv")
 #Eda <- read.csv(file.choose())###Edatopic table
 
@@ -162,9 +162,9 @@ modelList <- foreach(Spp = SppList, .combine = c) %do% {
 #############################################
 
 dat <- fread("ALLv11_500Pt_Normal_1961_1990MSY_REDUCED.csv", data.table = FALSE)
-dat <- dat[,c(2,5,239,230,183,184)]
+#dat <- dat[,c("ID2","PPT_at","PPT_wt","PAS", "Tave_sp", "Tave_sm", "DD5", "MAP", "MAT")]
 dat$ID2 <- gsub("[[:space:]]","",dat$ID2)
-mods <- list(Pl = fit.pl, Sx = fit.sx, Fd = fit.fd, Bl = fit.bl, Lw = fit.lw, Cw = fit.cw) ##list of polynomial models
+#mods <- list(Pl = fit.pl, Sx = fit.sx, Fd = fit.fd, Bl = fit.bl, Lw = fit.lw, Cw = fit.cw) ##list of polynomial models
 mods <- list(fit.poly) ##list of polynomial models
 
 edaPos <- list(A = c("C",5),B = c("B",3),C = c("D",6)) ###Which edatopic positions?
@@ -175,7 +175,7 @@ slopes <- foreach(Spp = SppList, .combine = rbind) %do% {##foreach species
   sibec <- sibec[!is.na(sibec$BGCUnit),]
   
   foreach(eda = edaPos, .combine = rbind) %do% { ##foreach edatopic position
-    ddBGC <- aggregate(cbind(DD5,MAT,Tave_sm, Tave_sp) ~ ID2, dat, FUN = mean)
+    ddBGC <- aggregate(cbind(DD5,Tave_sm, Tave_sp) ~ ID2, dat, FUN = mean)#MAT,
     colnames(ddBGC)[1] <- "BGC"
     
     SNR.val <- eda[1]
@@ -233,11 +233,12 @@ slopes <- foreach(Spp = SppList, .combine = rbind) %do% {##foreach species
 ###############Fill in SI Using polynomial model and slopes##############################
 #########################################################################################
 
-temp <- read.csv(file.choose())###Need to select BGC Units  (currenlty reading in BulkleyTSA predictions)
+#temp <- read.csv(file.choose())###Need to select BGC Units  (currenlty reading in Fraser TSA predictions)
+temp <- fread("FraserTSA_SSpredicted.csv")
 missing <- unique(as.character(temp$SS_NoSpace)) 
 
 dat <- fread("ALLv11_500Pt_Normal_1961_1990MSY_REDUCED.csv", data.table = FALSE) ###Climate data
-dat <- dat[,c(2,5,239,230,183,184)]
+#dat <- dat[,c(2,5,239,230,183,184)]
 dat$ID2 <- gsub("[[:space:]]","",dat$ID2)
 
 ##this loops calculates SI values for each species in each unit and averages them by unit####
@@ -291,7 +292,7 @@ SIFill <- foreach(Spp = SppList, .combine = rbind) %do% {
   fill
 }
 
-write.csv(SIFill,"PredSIforPort_test.csv", row.names = FALSE)
+write.csv(SIFill,"PredSI_Hm_test.csv", row.names = FALSE)
 
 #####Now same as above but for each edatopic cell########################################
 #########################################################################################
