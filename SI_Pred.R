@@ -141,7 +141,7 @@ modelList <- foreach(Spp = SppList, .combine = c) %do% {
   SImat <- dcast(SIcomb, SNR ~ aSMR)
   SImat <- SImat[,-1]
   SImat <- as.matrix(SImat)
-  ##barplot3d(SImat)### plot distribution
+  barplot3d(SImat)### plot distribution
   
   SIcomb$SNR <- changeNames(SIcomb$SNR, old = c("A","B","C","D","E"), new = c(1,2,3,4,5))
   SIcomb$SNR <- as.numeric(SIcomb$SNR)
@@ -266,6 +266,7 @@ SIFill <- foreach(Spp = SppList, .combine = rbind) %do% {
         datNew <- datNew[c(1,1),]
       }
       datNew$MeanSI <- predict(modelList[[Spp]], newdata = datNew) ##Predict
+      datNew$MeanSI[datNew$MeanSI > 1] <- 1 ###don't want proportions > 1
       SIprop <- mean(datNew$MeanSI)
       SImin <- min(datNew$MeanSI)
       SImax <- max(datNew$MeanSI)
@@ -277,6 +278,9 @@ SIFill <- foreach(Spp = SppList, .combine = rbind) %do% {
         climSub <- dat[dat$ID2 == zone,]
         tempVar <- mean(climSub$Tave_sm)
         maxSI <- slopeSub$Slope*tempVar + slopeSub$Intercept
+        if(length(maxSI) == 0){
+          maxSI <- NA
+        }
       }
       out <- data.frame(Unit = SS, SImin = maxSI*SImin, SImean = maxSI*SIprop, SImax = SImax*maxSI)##Multiply proportion by maxSI
       out
@@ -292,7 +296,7 @@ SIFill <- foreach(Spp = SppList, .combine = rbind) %do% {
   fill
 }
 
-write.csv(SIFill,"PredSI_Hm_test.csv", row.names = FALSE)
+write.csv(SIFill,"PredSI_FraserTSA_D6.csv", row.names = FALSE)
 
 #####Now same as above but for each edatopic cell########################################
 #########################################################################################
