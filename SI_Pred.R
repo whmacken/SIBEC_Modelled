@@ -76,7 +76,7 @@ colnames(SMRCross) <- c("BGC", "rSMR", "aSMRC")
 ###__________________________________________________________________#####
 
 SppList <- c("Pl","Sx","Bl","Cw","Hw","Fd","Lw","Py")
-SppList ="Bc"
+#SppList ="Bc"
 Eda <- read.csv("Edatopic_v10.7.csv")
 #Eda <- read.csv(file.choose())###Edatopic table
 
@@ -141,7 +141,7 @@ modelList <- foreach(Spp = SppList, .combine = c) %do% {
   SImat <- dcast(SIcomb, SNR ~ aSMR)
   SImat <- SImat[,-1]
   SImat <- as.matrix(SImat)
-  barplot3d(SImat)### plot distribution
+  ##barplot3d(SImat)### plot distribution
   
   SIcomb$SNR <- changeNames(SIcomb$SNR, old = c("A","B","C","D","E"), new = c(1,2,3,4,5))
   SIcomb$SNR <- as.numeric(SIcomb$SNR)
@@ -165,7 +165,7 @@ dat <- fread("ALLv11_500Pt_Normal_1961_1990MSY_REDUCED.csv", data.table = FALSE)
 #dat <- dat[,c("ID2","PPT_at","PPT_wt","PAS", "Tave_sp", "Tave_sm", "DD5", "MAP", "MAT")]
 dat$ID2 <- gsub("[[:space:]]","",dat$ID2)
 #mods <- list(Pl = fit.pl, Sx = fit.sx, Fd = fit.fd, Bl = fit.bl, Lw = fit.lw, Cw = fit.cw) ##list of polynomial models
-mods <- list(fit.poly) ##list of polynomial models
+mods <- modelList ##list of polynomial models
 
 edaPos <- list(A = c("C",5),B = c("B",3),C = c("D",6)) ###Which edatopic positions?
 
@@ -233,7 +233,7 @@ slopes <- foreach(Spp = SppList, .combine = rbind) %do% {##foreach species
 ###############Fill in SI Using polynomial model and slopes##############################
 #########################################################################################
 
-#temp <- read.csv(file.choose())###Need to select BGC Units  (currenlty reading in Fraser TSA predictions)
+#temp <- read.csv(file.choose())###Need to select BGC Units  (currently reading in Fraser TSA predictions)
 temp <- fread("FraserTSA_SSpredicted.csv")
 missing <- unique(as.character(temp$SS_NoSpace)) 
 
