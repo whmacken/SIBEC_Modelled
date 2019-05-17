@@ -68,7 +68,8 @@ par(mai = c(0.5, 0.5, 0.2, 0.2)) #speSEfies the margin size in inches
 wd <- tk_choose.dir(); setwd(wd)
 
 ####Read in aSMR x rSMR matrix (produced from aSMR x rSMR script and edited)
-SMR <- read.csv(file.choose())###aSMR x rSMR matrix
+SMR <- load("rSMR_aSMR_CalcList.RData")
+#SMR <- read.csv(file.choose())###aSMR x rSMR matrix
 SMRCross <- melt(SMR[-1]) ###aSMR lookup
 colnames(SMRCross) <- c("BGC", "rSMR", "aSMRC")
 
@@ -86,7 +87,178 @@ SMRCross$aSMR <- round(SMRCross$aSMR, digits = 0)
 
 sibecOrig <- read.xlsx("SIBEC_for_Portfolio2.xlsx", sheet = 1) ###import actual SI values
 
-modelList <- foreach(Spp = SppList, .combine = c) %do% {
+#####Pull in climatic and site data for each siteseries species in sibecOrig (pull from suitability script)
+SSSuit_Data <- read.csv ("SSnewSuit_Data.csv")
+#Harmonize the species labelling in both data sets. Sx for all interior spruce, Pl, Cw, Fd
+SSSuit_Data$Spp <- revalue(SSSuit_Data$Spp, c("Cwc"="Cw", "Fdc" = "Fd", "Se" = "Sx", "Sw" = "Sx", "Plc" = "Pl", "Bgc" = "Bg"))
+sibecOrig$TreeSpp <- revalue(sibecOrig$TreeSpp, c("Cwc"="Cw", "Fdc" = "Fd", "Se" = "Sx", "Sw" = "Sx", "Plc" = "Pl", "Bgc" = "Bg"))
+
+########## create 2 merged data sets. One where site index data is available and one where it is not.
+SS_wSibec <- sibecOrig [(sibecOrig$PlotCountSpp > 0),]
+SS_wSibec <- na.omit (SS_wSibec)
+SS_SI <- SS_wSibec [,c(9,5,7) ]
+colnames (SS_SI) [1:3] <- c("Unit", "Spp", "SI")
+SS_SI2 <- merge (SS_SI, SSSuit_Data, by = c("Unit","Spp"))
+SS_SI2 <- distinct(SS_SI2)
+Spp_count <-  group_by(SS_SI2, Spp) 
+summarise(Spp_count, count = n())
+Spp_count2 <- summarise(Spp_count, count = n())
+Spp.list <- Spp_count2$Spp [Spp_count2$count >5] ###list of species where there are more than 5 values
+###No sibec data - SHould be all site series. Where species does not occur then Site Index is 0
+SS_noSibec <- sibecOrig [is.na(sibecOrig$PlotCountSpp),]
+SS_SInew <- SS_noSibec [,c(9,5,7) ]
+colnames (SS_SInew) [1:3] <- c("Unit", "Spp", "SI")
+SS_SInew2 <- merge (SS_SInew, SSSuit_Data, by = c("Unit","Spp"))
+SS_SInew2 <- distinct(SS_SInew2)
+###ignore warning
+#######################
+###Then build regression model for each species and predict SI for places where values
+Spp_count <-  group_by(SS_SI2, Spp) 
+summarise(Spp_count, count = n())
+Spp_count2 <- summarise(Spp_count, count = n())
+Spp.list <- Spp_count2$Spp [Spp_count2$count >5] ###list of species where there are more than 5 values
+
+Spp = "Sx"
+
+
+###############Start of ForEach
+SI_PredAll <- foreach(Spp = Spp.list, .combine = rbind)  %do% {
+  options(stringsAsFactors = FALSE)
+  SI_Spp <- SS_SI2 [(SS_SI2$Spp %in% Spp), ]
+SI_Units <- SI_Spp[, c(4,1,2,5)]
+SI_Spp <- SI_Spp[, -c(4,1,2,5)]
+rF.fit <- randomForest(SI ~ .,data=SI_Spp, nodesize = 2, 
+                       do.trace = 10, ntree=201, na.action=na.fail, importance=TRUE, proximity=TRUE)
+  
+SI_Spp$PredSI <- predict(rF.fit, SI_Spp[,-c(1)])
+SI_Pred <- merge(SI_Units, SI_Spp[,c(1,20)], by = 0)
+
+SI_Sppnew <- SS_SInew2 [(SS_SInew2$Spp %in% Spp), ]
+SI_Unitsnew <- SI_Sppnew[, c(4,1,2,5)]
+SI_Sppnew <- SI_Sppnew[, -c(4,1,2,5)]
+SI_Sppnew$PredSI <- predict(rF.fit, SI_Sppnew[,-c(1)])
+SI_Prednew <- merge(SI_Unitsnew, SI_Sppnew[,c(1,20)], by = 0)
+SI_Pred2 <- rbind (SI_Pred, SI_Prednew)
+SI_Pred2
+
+}
+
+    #########fit in oversampling or undersamplin routine here
+  ##
+  X1.sub2 <- X1.sub
+  X1.sub <- SmoteClassif(ESuit ~ ., X1.sub, C.perc = "balance", k= 5 , repl = FALSE, dist = "Euclidean")
+  #X1.sub <- X1.sub2
+  #X1.sub <- SMOTE(ESuit ~ ., X1.sub, perc.over = 500, k=5, perc.under = 100)
+  #X1.sub <- SmoteClassif(ESuit ~ ., X1.sub, C.perc = list(common = 1,rare = 6), k= 5 , repl = FALSE, dist = "Euclidean")
+  
+  #X1.sub <- RandUnderClassif(ESuit ~ ., X1.sub)
+  #X1.sub <- downSample(x= X1.sub[-1], y= X1.sub$ESuit)
+  #####C50############################
+  #n = 9
+  #c50.fit <- C5.0(ESuit ~ ., data=X1.sub, trials = n, control = C5.0Control(winnow=TRUE,seed = 12134))
+  #, rules = TRUE,trials = 3,rules = FALSE,type="class",   sample = 0.1trials = 10,,trials = 5,  subset = TRUE, noGlobalPruning = FALSE
+  
+  #summary(c50.fit)
+  
+  #c50.varimp <- C5imp(c50.fit, metric = "splits", pct = TRUE) # or metric = "splits"
+  #save(c50.fit,file = "vegtreeC50.RData")
+  # return summary output to text file
+  #sink("C5.0summary.txt", append=FALSE, split=FALSE)
+  
+  #sink()
+  #plot (c50.fit)
+  
+  #c50.fit <- randomForest(ESuit ~ .,data=X1.sub, nodesize = 2, 
+  #                        do.trace = 10, ntree=101, na.action=na.fail, importance=TRUE, proximity=TRUE)
+  
+  ############test caret ensemble
+  
+  control <- trainControl(method="cv", number=5, returnResamp = "all",
+                          classProbs = TRUE, 
+                          search = "random")#, repeats=3
+  set.seed (12345)
+  #metric <- "ROC"
+  #C5.grid <- expand.grid(.cp=0)
+  # C5.0
+  droplevels(X1.sub$ESuit)
+  X1.sub$ESuit <- as.factor(X1.sub$ESuit)
+  #fit.c50 <- train(ESuit ~., X1.sub, method="C5.0", metric= "Accuracy", trControl=control)#[,c(1:4)]
+  
+  # Stochastic Gradient Boosting
+  set.seed (12345)
+  fit.rf <- train(ESuit ~.,  X1.sub, method='rf', metric="Accuracy", trControl=control, verbose=FALSE,  do.trace = 10, ntree=101)
+  varImp(fit.rf)
+  
+  # summarize results
+  #boosting_results <- resamples(list(c5.0=fit.c50, rf=fit.rf))
+  #summary(boosting_results)
+  #dotplot(boosting_results)
+  X1.sub$Pred <- predict(fit.rf, X1.sub[,-c(1)])
+  confusionMatrix(X1.sub[,1],X1.sub$Pred)
+  ###show confusion matrix of model
+  X1.sub2$Pred <- predict(fit.rf, X1.sub2[,-c(1)])
+  confusion <- as.matrix (confusionMatrix(X1.sub2[,1],X1.sub2$Pred))
+  confusionMatrix(X1.sub2[,1],X1.sub2$Pred)
+  #write.csv(confusion, file= paste(Spp,"_ConfusionMatrix.csv", sep=""))
+  SppPredict <- merge(X1.unit, X1.sub2, by = 0)
+  SppPredict <- na.omit(SppPredict)
+  ########output the units that are misclassified
+  #compareC5 <- SUsumMatrix[,c(1,length(SUsumMatrix),2)]
+  SppPredict$Same <- ifelse(SppPredict$ESuit == SppPredict$Pred,1,0)
+  SppPredict <- SppPredict [,c("Unit", "ESuit", "Pred", "Same")]
+  SppPredict<- SppPredict[!(SppPredict$ESuit == "E5" & SppPredict$Pred == "E5"),]
+  write.csv(SppPredict, file= paste(Spp, "_",State, "_ESuit_C50Suit.csv", sep=""))
+  
+  DiffSuit <- SppPredict[SppPredict$Same == 0,]
+  DiffSuit <- DiffSuit [,c("Unit", "ESuit", "Pred")]
+  #write.csv(DiffSuit, file= paste(Spp,"_",State,"_ESuit_C50DiffOnly.csv", sep=""))
+  
+  ESuitSpp <- ESuit [(ESuit$Spp %in% Spp),]
+  ESuitSpp <- merge (ESuitSpp[-4],SppPredict, by = "Unit")
+  ESuitSppnew <-""
+  
+  
+  SuitPred <- ESuitSpp ### Use where only the BGCs with previously estimated ESUIT are included
+  EstSuit <- rbind (EstSuit, SuitPred)
+  EstSuit
+  
+} # ignore error message here
+
+Date <- Sys.Date()
+SuitCompare$Table <- ""
+SuitCompare$Table [SuitCompare$Unit %in% ESuit1$Unit] <- "BC_Banner"
+SuitCompare$Table [SuitCompare$Unit %in% ESuit2$Unit] <- "USA_Meidinger"
+SuitCompare$Table [SuitCompare$Unit %in% ESuit3$Unit] <- "Alberta_Kabzims"
+SuitCompare$Table [SuitCompare$Unit %in% ESuit4$Unit] <- "Nelson_AddedPred"
+#SuitCompare$Table [(SuitCompare$Table == "" )] <- "Nelson_Refguide"
+SuitCompare <- SuitCompare %>% distinct()
+SuitCompare <- na.omit(SuitCompare)
+SuitCompare2 <- merge (SuitCompare, Codes, by = "Unit")
+write.csv(SuitCompare2, file= paste("ComparisonESuit_rF_1", Date, ".csv", sep=""), row.names = FALSE)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+#########Old method from Kiri
+ modelList <- foreach(Spp = SppList, .combine = c) %do%
   sibec <- sibecOrig[sibecOrig$TreeSpp == Spp,]##choose species
   sibec <- sibec[!is.na(sibec$BGCUnit),]
   numPlots <- aggregate(MeanPlotSiteIndex ~ BGCUnit, sibec, FUN = length)
@@ -149,7 +321,7 @@ modelList <- foreach(Spp = SppList, .combine = c) %do% {
   tempList <- list()
   tempList[[Spp]] <- fit.poly
   tempList
-}
+ {}
 
 ###Plot polynomial model####
 #zfit <- matrix(fitted(fit.bl), ncol = 8)
