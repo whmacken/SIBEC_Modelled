@@ -3,7 +3,6 @@
 ###Kiri Daust, July 2018
 
 ###Model aSMR <-> rSMR
-.libPaths("E:/R packages351")
 library(tcltk)
 library(reshape2)
 library(foreach)
@@ -27,109 +26,158 @@ changeNames <- function(x, old, new){
   return(result)
 }
 
-####Function to create 3d barplots from Stack Overflow####################
-binplot.3d <- function(x, y, z, alpha=1, topcol="#ff0000", sidecol="#aaaaaa", linecol="#000000")
-{
-  save <- par3d(skipRedraw=TRUE)
-  on.exit(par3d(save))
-  x1 <- c(rep(c(x[1], x[2], x[2], x[1]), 3), rep(x[1], 4), rep(x[2], 4))
-  z1 <- c(rep(0, 4), rep(c(0, 0, z, z), 4))
-  y1 <- c(y[1], y[1], y[2], y[2], rep(y[1], 4), rep(y[2], 4), rep(c(y[1], y[2], y[2], y[1]), 2))
-  x2 <- c(rep(c(x[1], x[1], x[2], x[2]), 2), rep(c(x[1], x[2], rep(x[1], 3), rep(x[2], 3)), 2))
-  z2 <- c(rep(c(0, z), 4), rep(0, 8), rep(z, 8))
-  y2 <- c(rep(y[1], 4), rep(y[2], 4), rep(c(rep(y[1], 3), rep(y[2], 3), y[1], y[2]), 2))
-  rgl.quads(x1, z1, y1, col=rep(sidecol, each=4), alpha=alpha)
-  rgl.quads(c(x[1], x[2], x[2], x[1]), rep(z, 4), c(y[1], y[1], y[2], y[2]), col=rep(topcol, each=4), alpha=1) 
-  rgl.lines(x2, z2, y2, col=linecol)
+###########Create full SIBEC Predict Data set from BART model###########
+setwd("C:/Users/Kiri Daust/Desktop/SI-Prediction")
+sibecOrig <- read.csv("SIBECDatRaw.csv")
+climDat <- fread("BECv11_750Pt_FiveYr_2011_2015MSY.csv", data.table = F)
+climDat <- climDat[climDat$Eref_sm > -1000,]
+climDat <- climDat[,c("ID2","CMD","FFP","Eref_sm","MCMT","SHM","TD","PAS","DD5_sp","MSP")]
+colnames(climDat)[1] <- "BGC"
+climAve <- climDat %>%
+  group_by(BGC) %>%
+  summarise_all(mean, na.rm = T)
+CMD <- climAve[,c("BGC","CMD")]
+
+for (i in 1:3){
+  CMD[,2+i] <- CMD[,1+i]/2
 }
+colnames(CMD) <- c("BGC","4","5","6","7")
+CMD <- CMD[,c(1,3:5,2)]
 
-barplot3d <- function(z, alpha=1, col="#ff0000", scale=1)
-{
-  save <- par3d(skipRedraw=TRUE)
-  on.exit(par3d(save))
-  z <- as.matrix(z)
-  xy <- dim(z)
-  x <- seq(xy[1])
-  y <- seq(xy[2])
-  z <- z / max(z, na.rm=TRUE) * max(x, y) * scale
-  for (i in x) 
-  {
-    for (j in y) 
-    {
-      binplot.3d(c(i, i+1), c(j, j+1), z[i,j], alpha=alpha, topcol=col)
-    }
-  }
+###for each drier rSMR, previous CMD + 100
+for (i in 1:4){
+  CMD[,length(CMD)+1] <- CMD[,length(CMD)] + 100
 }
-wireframe(zfit)
+colnames(CMD)[6:9] <- c("3","2","1","0")
 
-layout(rbind(c(1,2,3), c(4,5,6), c(7,8,9)),widths=c(1,1,1), heights =c(1,1,1), respect=TRUE)
-par(mai = c(0.5, 0.5, 0.2, 0.2)) #speSEfies the margin size in inches
+CMD <- CMD[,order(colnames(CMD))]## creates full grid of CMD values by BGC by rSMR class
+CMD <- as.data.frame(CMD)
+CMD <- melt(CMD)
+colnames(CMD) <- c("BGC","rSMR","EdaCMD")
 
-wd <- tk_choose.dir(); setwd(wd)
+eda <- read.csv("Edatopic_v11.0.csv")
+eda <- eda[eda$Codes == "",]
+eda <- eda[,-c(5,6)]
+climAve <- merge(eda[,-1], climAve, by.x = "MergedBGC", by.y = "BGC", all = T)
+climAve <- climAve[!is.na(climAve$CMD),]
+climAve$SNR <- str_sub(climAve$Edatopic, 1,1) %>% str_replace_all(c("A" = "1", "B" = "2", "C" = "3", "D" = "4" ,"E" = "5" ))
+climAve$rSMR <-str_sub(climAve$Edatopic, -1,-1)
+climAve <- merge(climAve, CMD, by.x = c("MergedBGC","rSMR"), by.y = c("BGC","rSMR"), all = TRUE)
 
-####Read in aSMR x rSMR matrix (produced from aSMR x rSMR script and edited)
-SMR <- load("rSMR_aSMR_CalcList.RData")
-#SMR <- read.csv(file.choose())###aSMR x rSMR matrix
-SMRCross <- melt(SMR[-1]) ###aSMR lookup
-colnames(SMRCross) <- c("BGC", "rSMR", "aSMRC")
+suitTbl <- read.csv("TreeSpp_ESuit_v11_16.csv")
+suitTbl <- suitTbl[,c("Unit","Spp","ESuit")]
+climAve <- merge(climAve, suitTbl, by.x = "SS_NoSpace", by.y = "Unit", all.x = T, all.y = F)
+
+##add in aSMR modelled data
+aSMRrSMR="modelled_ALLv11_rSMR_aSMR_grid_HalfStep.csv"
+aSMR <-read.csv(aSMRrSMR,stringsAsFactors=FALSE,na.strings=".")
+aSMR <- aSMR[-1]
+colnames(aSMR) <- c("BGC","0","1","2","3","4","5","6","7")
+aSMR.list <- melt(aSMR)
+colnames(aSMR.list)[2:3] <- c("rSMR","aSMR")
+climAve <- merge(climAve,aSMR.list, by.x = c("MergedBGC","rSMR"),by.y = c("BGC","rSMR"), all.x = TRUE)
+climAve <- climAve[!is.na(climAve$SS_NoSpace),]
+SSVars <- climAve %>%
+  group_by(SS_NoSpace) %>%
+  summarise_at(c("aSMR","SNR","EdaCMD"), .funs = list(~min(.),~mean(as.numeric(.),na.rm = T),~max(.))) %>%
+  ungroup()
+climVars <- climAve[,c("SS_NoSpace","MergedBGC","Spp","ESuit","CMD","FFP","Eref_sm","MCMT","SHM","TD","PAS","DD5_sp","MSP")] %>%
+  unique()
+climVars <- climVars[!is.na(climVars$Spp),]
+finalDat <- merge(climVars,SSVars,by = "SS_NoSpace", all.x = T)
+colnames(finalDat) <- c("Unit", "BGC", "Spp", "ESuit", "CMD", "FFP", "Eref_sm", 
+                        "MCMT", "SHM", "TD", "PAS", "DD5_sp", "MSP", "aSMR_min", "SNR_num_min", "EdaCMD_min",  
+                        "aSMR_mean","SNR_num_mean", "EdaCMD_mean", "aSMR_max", "SNR_num_max","EdaCMD_max")
+write.csv(finalDat,"BartInputDat.csv", row.names = F)
+finalDat <- read.csv("BartInputDat.csv")
+######################################################################################################
+finalDat <- mutate(finalDat, SNR_num_min = as.numeric(SNR_num_min), SNR_num_max = as.numeric(SNR_num_max))
 
 ####Create SI models for each species####
 ###__________________________________________________________________#####
 
-SppList <- c("Pl","Sx","Bl","Cw","Hw","Fd","Py", "Ba", "Ss")# these species fail,"Lw", "Yc", "Bg", "Pw"
-#SppList ="Bc"
-Eda <- read.csv("Edatopic_v11.0.csv")
-#Eda <- read.csv(file.choose())###Edatopic table
-
-colnames(SMRCross) <- c("BGC", "rSMR", "aSMR")
-SMRCross$rSMR <- gsub("[[:alpha:]]","", SMRCross$rSMR)
-SMRCross$aSMR <- round(SMRCross$aSMR, digits = 0)
-
 sibecOrig <- read.xlsx("SIBEC_for_Portfolio2.xlsx", sheet = 1) ###import actual SI values
 
 #####Pull in climatic and site data for each siteseries species in sibecOrig (pull from suitability script)
-SSSuit_Data <- read.csv ("SSnewSuit_Data.csv")
+SSSuit_Data <- finalDat
 #Harmonize the species labelling in both data sets. Sx for all interior spruce, Pl, Cw, Fd
-SSSuit_Data$Spp <- revalue(SSSuit_Data$Spp, c("Cwc"="Cw", "Fdc" = "Fd", "Se" = "Sx", "Sw" = "Sx", "Plc" = "Pl", "Bgc" = "Bg"))
-sibecOrig$TreeSpp <- revalue(sibecOrig$TreeSpp, c("Cwc"="Cw", "Fdc" = "Fd", "Se" = "Sx", "Sw" = "Sx", "Plc" = "Pl", "Bgc" = "Bg"))
+SSSuit_Data$Spp <- dplyr::recode(SSSuit_Data$Spp, Cwc="Cw", Fdc = "Fd", Se = "Sx", Sw = "Sx", Plc = "Pl", Bgc = "Bg")
+sibecOrig$TreeSpp <- dplyr::recode(sibecOrig$TreeSpp, Cwc="Cw", Fdc = "Fd", Se = "Sx", Sw = "Sx", Plc = "Pl", Bgc = "Bg")
 
 ########## create 2 merged data sets. One where site index data is available and one where it is not.
-SS_wSibec <- sibecOrig [(sibecOrig$PlotCountSpp > 0),]
-SS_wSibec <- na.omit (SS_wSibec)
+# SS_wSibec <- sibecOrig [(sibecOrig$PlotCountSpp > 0),]
+# SS_wSibec <- na.omit (SS_wSibec)
+
+SS_wSibec <- sibecOrig
 SS_SI <- SS_wSibec [,c(9,5,7) ]
 colnames (SS_SI) [1:3] <- c("Unit", "Spp", "SI")
 SS_SI2 <- merge (SS_SI, SSSuit_Data, by = c("Unit","Spp"))
 SS_SI2 <- distinct(SS_SI2)
-Spp_count <-  group_by(SS_SI2, Spp) 
-summarise(Spp_count, count = n())
-Spp_count2 <- summarise(Spp_count, count = n())
-Spp.list <- Spp_count2$Spp [Spp_count2$count >5] ###list of species where there are more than 5 values
+Spp_count2 <- SS_SI2 %>%
+  group_by(Spp) %>%
+  summarise(count = n())
+
+
+Spp.list <- Spp_count2$Spp [Spp_count2$count >10] ###list of species where there are more than 5 values
+SS_SI2 <- SS_SI2[!is.na(SS_SI2$SI),]
 ###No sibec data - SHould be all site series. Where species does not occur then Site Index is 0
-SS_noSibec <- sibecOrig [is.na(sibecOrig$PlotCountSpp),]
-SS_SInew <- SS_noSibec [,c(9,5,7) ]
-colnames (SS_SInew) [1:3] <- c("Unit", "Spp", "SI")
-SS_SInew2 <- merge (SS_SInew, SSSuit_Data, by = c("Unit","Spp"))
-SS_SInew2 <- distinct(SS_SInew2)
-###ignore warning
-#######################
-###Then build regression model for each species and predict SI for places where values
-Spp_count <-  group_by(SS_SI2, Spp) 
-summarise(Spp_count, count = n())
-Spp_count2 <- summarise(Spp_count, count = n())
-Spp.list <- Spp_count2$Spp [Spp_count2$count >5] ###list of species where there are more than 5 values
+# SS_noSibec <- sibecOrig [is.na(sibecOrig$PlotCountSpp),]
+# SS_SInew <- SS_noSibec [,c(9,5,7) ]
+# colnames (SS_SInew) [1:3] <- c("Unit", "Spp", "SI")
+# SS_SInew2 <- merge (SS_SInew, SSSuit_Data, by = c("Unit","Spp"))
+# SS_SInew2 <- distinct(SS_SInew2)
+# ###ignore warning
+# #######################
+# ###Then build regression model for each species and predict SI for places where values
 
-Spp = "Sx"
+library(rJava)
+options(java.parameters = "-Xmx8000m")
+library(bartMachine)
+set_bart_machine_num_cores(5)
 
-
-###############Start of ForEach
-SI_PredAll <- foreach(Spp = Spp.list, .combine = rbind)  %do% {
+####model testing
+SI_PredAll <- foreach(Spp = SppList, .combine = rbind)  %do% {
   options(stringsAsFactors = FALSE)
   SI_Spp <- SS_SI2 [(SS_SI2$Spp %in% Spp), ]
-SI_Units <- SI_Spp[, c(4,1,2,5)]
-SI_Spp <- SI_Spp[, -c(4,1,2,5)]
-rF.fit <- randomForest(SI ~ .,data=SI_Spp, nodesize = 2, 
-                       do.trace = 10, ntree=201, na.action=na.fail, importance=TRUE, proximity=TRUE)
+  SI_Spp <- SI_Spp[,-c(4,1,2,5)]
+  rownames(SI_Spp) <- NULL
+  ind <- sample(rownames(SI_Spp), size = nrow(SI_Spp)/3)
+  test <- SI_Spp[ind,]
+  train <- SI_Spp[!rownames(SI_Spp) %in% ind,]
   
+  # rF.fit <- randomForest(SI ~ .,data=train, nodesize = 2, 
+  #                        do.trace = 10, ntree=201, na.action=na.fail, importance=TRUE, proximity=TRUE)
+  
+  bF.fit <- bartMachine(train[,-1],train$SI, k = 2, nu = 3, q = 0.99, num_trees = 200)
+
+  test$BFPred <- predict(bF.fit, test[,-1])
+  test$Spp <- Spp
+  test
+}
+
+BFMods <- foreach(Spp = Spp.list, .combine = c)  %do% {
+  SI_Spp <- SS_SI2 [(SS_SI2$Spp %in% Spp), ]
+  SI_Spp <- SI_Spp[,-c(4,1,2,5)]
+  rownames(SI_Spp) <- NULL
+  
+  bF.fit <- bartMachine(SI_Spp[,-1],SI_Spp$SI, k = 2, nu = 3, q = 0.99, num_trees = 200)
+  list(bF.fit)
+}
+
+names(BFMods) <- Spp.list
+save(BFMods, file = "BFModels.RData")
+
+testDat <- finalDat[,-c(2:4)] %>% unique()
+bartSIPred <- foreach(Spp = Spp.list, .combine = rbind) %do% {
+  mod <- BFMods[[Spp]]
+  out <- data.frame(Unit = testDat$Unit,SIPred = predict(mod, new_data = testDat[,-1]))
+  out$Spp <- Spp
+  out
+}
+
+bartSIPred <- merge(bartSIPred, sibecOrig[,c(9,5,7)], by.x = c("Unit","Spp"), by.y = c("SS_NoSpace","TreeSpp"), all.x = T)
+write.csv(bartSIPred, "BartPredSI.csv", row.names = F)
+
 SI_Spp$PredSI <- predict(rF.fit, SI_Spp[,-c(1)])
 SI_Pred <- merge(SI_Units, SI_Spp[,c(1,20)], by = 0)
 
@@ -141,7 +189,6 @@ SI_Prednew <- merge(SI_Unitsnew, SI_Sppnew[,c(1,20)], by = 0)
 SI_Pred2 <- rbind (SI_Pred, SI_Prednew)
 SI_Pred2
 
-}
 
     #########fit in oversampling or undersamplin routine here
   ##
