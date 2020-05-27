@@ -1,0 +1,214 @@
+---
+title: "SIBEC_Evaluation"
+author: "William H MacKenzie"
+date: "29/11/2019"
+output:
+  pdf_document: default
+  html_document: default
+---
+# Evaluation of SIBEC values
+This script was built to look at the range of site index by site series or other site factors for the SIBEC dataset compiled by Atticus from the original data sets.
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+options(tinytex.verbose = TRUE)
+require(plyr)
+require(dplyr)
+require(tidyr)
+require(TeachingDemos)
+require (ggplot2)
+require (assertr)
+require(data.table)
+require(tinytex)
+```
+
+##Import Vtrees data
+
+Read in SIBEC data from a .csv table export of a _Trees table from the VTrees database
+
+```{r Vtrees data import}
+#SI_raw <- fread("./SI_Prediction/SIBEC_SBSmc2_2019_Trees.csv") ##v1 recalcuated SI using Count Age and TotalHtCalc
+SI_raw <- fread("./SI_Prediction/SBS_mc2_Trees_new.csv") ##v2 Use the AgeBH where available - gets rid of some outliers. Sx starts looking better 
+#SI_explore <- fread("SBSmc2_SI_Cleaned.csv")
+table(SI_raw[,SiteSeries])
+sort(unique(SI_raw$TreeSpp))# examine unique tree codes for harmonization
+SI_raw <- as.data.frame(SI_raw)
+##### Clean up Species Codes
+SI_raw$TreeSpp <- SI_raw$TreeSpp %>% recode(
+  "Sw" = "Sx", "sw" = "Sx", "Se" = "Sx",
+  "EP"= "Ep", "FD" = "Fd", "Fd " = "Fd", "PL" = "Pl")
+
+SI_raw$NutrientRegime <- toupper(SI_raw$NutrientRegime)
+SI_raw <- SI_raw[!SI_raw$TreeSpp == "",]
+sort(unique(SI_raw$TreeSpp)) # check for any other miscodes
+SI_info <- SI_raw %>% select(Zone, SubZone, SiteSeries, TreeNum, MoistureRegime, NutrientRegime)
+### Reduce the variable set for submission to Site Tools
+SI_clean <-  SI_raw %>% select(PlotNumber,TreeSpp, NewAge, TotalHtCalc) %>% dplyr::rename(Species = TreeSpp, `BHAge` = NewAge, `Height` = TotalHtCalc )
+write.csv(SI_clean, "./SI_Prediction/SIBEC_SBScm2_2019_ForSiteTools_v2.csv", row.names = FALSE) ####submit this file to Site Tools (no file header)
+```
+
+## Merge SiteTools site index estimations with Site data
+CSV files submitted to SiteTools 4.1 are read in and merged with plot information.
+
+SiteTools curves can be run for either interior or coastal locations. Run both algorithms on the same datasets in SiteTools and merge together the results from the two files if the data set includes collections from both regions
+```{r tidy SIBEC data, echo=TRUE}
+###merge the results back into the dataframe
+SI_clean_interior <- fread("./SI_Prediction/SIBEC_SBSmc2_2019_SiteTools4.1_interior_v2.csv")
+SI_clean_interior <- cbind(SI_info, SI_clean_interior)
+SI_tidy <- SI_clean_interior
+#------------Include if data needs both interior and coastal SI for complete set of tables
+# SI_clean_coast <- fread("./SI_Prediction/SIBEC_All_2019_SiteTools4.1_coast.csv")
+# SI_clean_coast <-  SI_clean_coast %>% select('Site Index m') %>% dplyr::rename(SI_coast = 'Site Index m')
+# SI_tidy <- cbind(SI_clean_interior, SI_clean_coast)
+
+SI_tidy <- SI_tidy[!duplicated(SI_tidy),]
+SI_tidy <- SI_tidy %>% dplyr::rename(BHAge = 'BH Age yrs', Height = 'Height m', SI_interior = 'Site Index m')
+#SI_tidy <- SI_tidy[complete.cases(SI_tidy)]
+SI_tidy <- SI_tidy[! (SI_tidy$SiteSeries == ""),]
+SI_tidy$edatope <-  paste0(SI_tidy$MoistureRegime , SI_tidy$NutrientRegime)
+SI_tidy$edatope2 <-  paste0(SI_tidy$NutrientRegime,SI_tidy$MoistureRegime)
+write.csv(SI_tidy, "./SI_Prediction/SIBEC_SBSmc2_2019_v2.csv", row.names = FALSE)
+```
+
+## Generate boxplots of site index by site series with phases
+This produces a facetted boxplot graph for each species in a BGC showing site index by site series
+
+```{r boxplot SS phases graphs raw, fig.width = 12, fig.height = 8, fig.cap = "Fig. 0 Site Index by Site Series with phases all data for each species in the SBSmc2" }
+table(SI_tidy[, "SiteSeries"])
+SI_spp <- SI_tidy %>% filter(Zone == "SBS", SubZone == "mc2")#, Species == "Lw")
+SI_spp <- drop_na (SI_spp)
+SI_sppsave <- SI_spp
+table(SI_spp[, "SiteSeries"])
+
+SI_spp$SiteSeries <- as.factor(SI_spp$SiteSeries)
+
+#sets order for site series -- need to make this more universal
+SI_spp$SiteSeries <- factor(SI_spp$SiteSeries, levels = c("02", "03", "01c", "01b", "01a", "01",#
+                                                          "04", "05", "06", "09b","09", "09a", #
+                                                           "10a","10", "07","10b","12"))# "12a",
+#-------Produce boxplot
+BGC = "SBSmc2"
+SI_box <- ggplot(SI_spp, aes(x=SiteSeries, y=SI_interior, fill=Species)) + 
+  geom_boxplot()+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))+
+  ggtitle(paste0 ("Site Index by Site Series phases for the "), BGC)+
+  facet_wrap(~Species)
+plot(SI_box)
+
+ggsave("SIxSSphaseraw_boxplot_SBSmc2ver2.jpg", SI_box, device="jpeg", path = "./SI_prediction/outputs/")
+
+```
+
+```{r boxplot SS phases graphs, fig.width = 12, fig.height = 8, fig.cap = "Fig. 1 Site Index by Site Series with phases - removed some outliers for each species in the SBSmc2" }
+
+remove <-c("SBC3727", "SBC3724", "SBC3711", "SBC3712", "SBC3686", "SBC7318", "SBC3109", "SBC3108","SBC3422",
+            "SBC6092", "SBC3716", "SBC3714", "SBC6145" ) # these are 12 plots with much higher productivity than the second set (2 phases?)
+SI_spp1 <- SI_spp [!(SI_spp$PlotNumber %in% remove), ]
+table(SI_spp1[, "SiteSeries"])
+
+SI_spp1$SiteSeries <- as.factor(SI_spp1$SiteSeries)
+
+##box blot of site index by site series for selected zone
+#sets order for site series -- need to make this more universal
+SI_spp1$SiteSeries <- factor(SI_spp1$SiteSeries, levels = c("02", "03", "01c", "01b", "01a", "01",#
+                                                          "04", "05", "06", "09b","09", "09a", #
+                                                           "10a","10", "07","10b","12"))# "12a",
+#-------Produce boxplot
+BGC = "SBSmc2"
+SI_box1 <- ggplot(SI_spp1, aes(x=SiteSeries, y=SI_interior, fill=Species)) + 
+  geom_boxplot()+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))+
+  ggtitle(paste0 ("Site Index by Site Series phases for the "), BGC)+
+  facet_wrap(~Species)
+plot(SI_box1)
+
+ggsave("SIxSSphase2_boxplot_SBSmc2ver2.jpg", SI_box1, device="jpeg", path = "./SI_prediction/outputs/")
+
+```
+
+## Generate boxplots of site index by site series without phases
+This produces a facetted boxplot graph for each species in a BGC showing site index by site series
+
+```{r boxplot SS graphs, fig.width = 12, fig.height = 8, fig.cap = "Fig. 2 Site Index by Site Series (no phases) for each species in the SBSmc2" }
+### remove any phase designations
+SI_spp1$SiteSeries <- as.character(SI_spp1$SiteSeries)
+SI_spp2 <- SI_spp1 %>% 
+      mutate(SiteSeries_rename = ifelse(SiteSeries %in% c('01a', '01b', '01c'), '01', 
+                     ifelse(SiteSeries %in% c('09a', '09b'), '09',
+                            ifelse (SiteSeries %in% c('10a','10b'), '10', SiteSeries))))
+table(SI_spp2[, "SiteSeries_rename"])
+
+#SI_spp2$SiteSeries_rename <- as.factor(SI_spp2$SiteSeries_rename)
+
+##box blot of site index by site series for selected zone
+#sets order for site series -- need to make this more universal
+SI_spp2$SiteSeries_rename <- factor(SI_spp2$SiteSeries_rename, levels = c("02", "03",  "01",#"01c", "01b", "01a",
+                                                          "04", "05", "06", "09", #"09b", "09a",
+                                                           "10", "07","12"))#"10a","10b", "12a",
+#-------Produce boxplot
+BGC = "SBSmc2"
+SI_box2 <- ggplot(SI_spp2, aes(x=SiteSeries_rename, y=SI_interior, fill=Species)) + 
+  geom_boxplot()+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))+
+  ggtitle(paste0 ("Site Index by Site Series (no phases) for the "), BGC)+
+  facet_wrap(~Species)
+plot(SI_box2)
+
+ggsave("SIxSS_boxplot_SBSmc2ver2.jpg", SI_box2, device="jpeg", path = "./SI_prediction/outputs/")
+
+
+
+```
+
+
+## Generate boxplots of site index by soil moisture regime
+This produces a facetted boxplot graph for each species in a BGC showing site index by site series
+
+```{r boxplot SMR graphs, fig.width = 12, fig.height = 8, fig.cap = "Fig. 3 Site Index by SoilMoisture Regime for each species in the SBSmc2" }
+#-------Produce boxplot
+table(SI_spp[, "MoistureRegime"])
+SI_spp$MoistureRegime <- as.factor(SI_spp$MoistureRegime)
+SI_box3 <- ggplot(SI_spp, aes(x=MoistureRegime, y=SI_interior, fill=Species)) + 
+  geom_boxplot()+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))+
+  ggtitle(paste0 ("Site Index by SMR for the "), BGC)+
+  facet_wrap(~Species)
+plot(SI_box3)
+
+ggsave("SIxEdatopeSMR_boxplot_SBSmc2ver2.jpg", SI_box3, device="jpeg", path = "./SI_prediction/outputs/")
+
+
+```
+## Generate Plots by Edatope organized by SMR groups
+
+```{r boxplot edatopicxSMR graphs, fig.width = 12, fig.height = 8, fig.cap = "Fig. 4 Site Index by Edatope-SMR for each species in the SBSmc2" }
+#-------Produce boxplot
+table(SI_spp[, "edatope"])
+SI_spp$edatope <- as.factor(SI_spp$edatope)
+SI_box4 <- ggplot(SI_spp, aes(x=edatope, y=SI_interior, fill=Species)) + 
+  geom_boxplot()+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))+
+  ggtitle(paste0 ("Site Index by Edatope for the "), BGC)+
+  facet_wrap(~Species)
+plot(SI_box4)
+
+ggsave("SIxEdatopeSMR_boxplot_SBSmc2ver2.jpg", SI_box4, device="jpeg", path = "./SI_prediction/outputs/")
+
+
+```
+
+## Generate Plots by Edatope organized by SNR groups
+```{r boxplot edatopicxSNR graphs, fig.width = 12, fig.height = 8, fig.cap = "Fig. 5 Site Index by Edatope-SNR for each species in the SBSmc2" }
+#-------Produce boxplot
+table(SI_tidy[, "edatope2"])
+SI_box5 <- ggplot(SI_spp, aes(x=edatope2, y=SI_interior, fill=Species)) + 
+  geom_boxplot()+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))+
+  ggtitle(paste0 ("Site Index by Edatope for the "), BGC)+
+  facet_wrap(~Species)
+plot(SI_box5)
+
+ggsave("SIxEdatopeSNR_boxplot_SBSmc2ver2.jpg", SI_box5, device="jpeg", path = "./SI_prediction/outputs/")
+
+```
+
