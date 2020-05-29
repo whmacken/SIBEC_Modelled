@@ -1,6 +1,6 @@
 ---
 title: "Site Index by Site Series Predictive Model"
-author: "William H MacKenzie"
+author: "Kiri Daust/William H MacKenzie"
 date: "13/12/2019"
 output: html_document
 ---
