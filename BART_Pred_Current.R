@@ -16,6 +16,7 @@ library(rgl)
 library(deldir)
 library(openxlsx)
 library(stringr)
+library(Rcpp)
 
 changeNames <- function(x, old, new){
   result <- vector("numeric", length(x))
@@ -27,100 +28,110 @@ changeNames <- function(x, old, new){
   return(result)
 }
 
+cppFunction('NumericVector calcASMR(NumericVector rSMR,NumericVector CMD, DataFrame Rules) {
+  NumericVector rSMRLev = Rules["SMRLevel"];
+  NumericVector CMDctf = Rules["CMD"];
+  NumericVector aSMR = Rules["aSMR"];
+  int len = CMD.length();
+  IntegerVector v;
+  NumericVector out(len);
+  for(int i = 0; i < len; i++){
+    v = Rcpp::seq(0, aSMR.length()-1);
+    if(rSMR[i] < 5){
+      v = v[rSMRLev == 0];
+    }else if(rSMR[i] == 5){
+      v = v[rSMRLev == 5];
+    }else if(rSMR[i] == 6){
+      v = v[rSMRLev == 6];
+    }else{
+      v = v[rSMRLev == 7];
+    }
+    int j;
+    for(j = v[0]; j < v[v.length()]; j++){
+      if(CMD[i] <= CMDctf[j]){
+        break;
+      }
+    }
+    out[i] = aSMR[j];
+  }
+  return(out);
+}')
+
 ###########Create full SIBEC Predict Data set from BART model###########
-setwd("C:/Users/Kiri Daust/Desktop/SI-Prediction")
-sibecOrig <- read.csv("SIBECDatRaw.csv")
-climDat <- fread("BECv11_750Pt_FiveYr_2011_2015MSY.csv", data.table = F)
-climDat <- climDat[climDat$Eref_sm > -1000,]
+setwd("C:/Users/kirid/Desktop/SI-Prediction")
+sibecOrig <- read.csv("SIBEC_Clean.csv")
+climDat <- fread("./SIPred_wNA/BEC_wNA_250pt_2001-2018MSY.csv")
+climDat <- climDat[Eref_sm > -1000,]
 climDat <- climDat[,c("ID2","CMD","FFP","Eref_sm","MCMT","SHM","TD","PAS","DD5_sp","MSP")]
 colnames(climDat)[1] <- "BGC"
-climAve <- climDat %>%
-  group_by(BGC) %>%
-  summarise_all(mean, na.rm = T)
+climAve <- climDat[,lapply(.SD, mean), by = "BGC"]
 CMD <- climAve[,c("BGC","CMD")]
 
-for (i in 1:3){
-  CMD[,2+i] <- CMD[,1+i]/2
+calcCMD <- function(CMD, rSMR){
+  diff <- rSMR - 4
+  if(diff > 0){
+    return(CMD/2^diff)
+  }else if(diff < 0){
+    return(CMD + 100*abs(diff))
+  }else{
+    return(CMD)
+  }
 }
-colnames(CMD) <- c("BGC","4","5","6","7")
-CMD <- CMD[,c(1,3:5,2)]
 
-###for each drier rSMR, previous CMD + 100
-for (i in 1:4){
-  CMD[,length(CMD)+1] <- CMD[,length(CMD)] + 100
+CMDeda <- foreach(rel = 0:7,.combine = rbind) %do% {
+  temp <- CMD
+  temp$CMD <- calcCMD(temp$CMD, rel)
+  temp$rSMR <- rel
+  temp
 }
-colnames(CMD)[6:9] <- c("3","2","1","0")
 
-CMD <- CMD[,order(colnames(CMD))]## creates full grid of CMD values by BGC by rSMR class
-CMD <- as.data.frame(CMD)
-CMD <- melt(CMD)
-colnames(CMD) <- c("BGC","rSMR","EdaCMD")
+CMD <- CMDeda %>% set_colnames(c("BGC","EdaCMD","rSMR"))
 
-eda <- read.csv("Edatopic_v11_7.csv")
-eda <- eda[is.na(eda$Codes),]
-eda <- eda[,-c(5,6)]
-climAve <- merge(eda[,-1], climAve, by.x = "MergedBGC", by.y = "BGC", all = T)
+eda <- fread("Edatopic_v11_20.csv")
+eda <- eda[is.na(Codes),]
+eda <- eda[,-c(5:12)]
+climAve <- merge(eda[,-1], climAve, by = "BGC", all = T)
 climAve <- climAve[!is.na(climAve$CMD),]
 climAve$SNR <- str_sub(climAve$Edatopic, 1,1) %>% str_replace_all(c("A" = "1", "B" = "2", "C" = "3", "D" = "4" ,"E" = "5" ))
-climAve$rSMR <-str_sub(climAve$Edatopic, -1,-1)
-climAve <- merge(climAve, CMD, by.x = c("MergedBGC","rSMR"), by.y = c("BGC","rSMR"), all = TRUE)
+climAve$rSMR <-str_sub(climAve$Edatopic, -1,-1) %>% as.numeric()
+climAve <- merge(climAve, CMD, by = c("BGC","rSMR"), all.x = TRUE)
 
-suitTbl <- read.csv("TreeSpp_ESuit_v11_18.csv")
-suitTbl <- suitTbl[,c("Unit","Spp","ESuit")]
-climAve <- merge(climAve, suitTbl, by.x = "SS_NoSpace", by.y = "Unit", all.x = T, all.y = F)
-climAve <- climAve[climAve$Spp != "X",] ###tthis is bad, use to set bounds
-climAve <- climAve[climAve$ESuit != 5,]
-climAve <- climAve[!is.na(climAve$SS_NoSpace),]
+suitTbl <- fread("Feasibility_v11_21.csv")
+suitTbl <- suitTbl[,c("SS_NoSpace","Spp","Feasible")]
+climAve <- merge(climAve, suitTbl, by = "SS_NoSpace", all.x = T, all.y = F, allow.cartesian = T)
+climAve <- unique(climAve)
 
-##add in aSMR modelled data
-aSMRrSMR="modelled_ALLv11_rSMR_aSMR_grid_HalfStep.csv"
-aSMR <-read.csv(aSMRrSMR,stringsAsFactors=FALSE,na.strings=".")
-aSMR <- aSMR[-1]
-colnames(aSMR) <- c("BGC","0","1","2","3","4","5","6","7")
-aSMR.list <- melt(aSMR)
-colnames(aSMR.list)[2:3] <- c("rSMR","aSMR")
-climAve <- merge(climAve,aSMR.list, by.x = c("MergedBGC","rSMR"),by.y = c("BGC","rSMR"), all.x = TRUE)
+rules <- fread("aSMR_Rules_HalfStep_v11_09Dec2019.csv")
+climAve$aSMR <- calcASMR(rSMR = climAve$rSMR, CMD = climAve$EdaCMD, Rules = rules)
+
 climAve <- climAve[!is.na(climAve$SS_NoSpace),]
+climAve$SNR <- as.numeric(climAve$SNR)
 SSVars <- climAve %>%
   group_by(SS_NoSpace) %>%
-  summarise_at(c("aSMR","SNR","EdaCMD"), .funs = list(~min(.),~mean(as.numeric(.),na.rm = T),~max(.))) %>%
+  summarise_at(c("aSMR","SNR","EdaCMD"), .funs = list(~min(.),~mean(.),~max(.))) %>%
   ungroup()
-climVars <- climAve[,c("SS_NoSpace","MergedBGC","Spp","ESuit","CMD","FFP","Eref_sm","MCMT","SHM","TD","PAS","DD5_sp","MSP")] %>%
+climVars <- climAve[,c("BGC", "SS_NoSpace","Spp","Feasible","CMD","FFP","Eref_sm","MCMT","SHM","TD","PAS","DD5_sp","MSP")] %>%
   unique()
 climVars <- climVars[!is.na(climVars$Spp),]
 finalDat <- merge(climVars,SSVars,by = "SS_NoSpace", all.x = T)
-colnames(finalDat) <- c("Unit", "BGC", "Spp", "ESuit", "CMD", "FFP", "Eref_sm", 
-                        "MCMT", "SHM", "TD", "PAS", "DD5_sp", "MSP", "aSMR_min", "SNR_num_min", "EdaCMD_min",  
-                        "aSMR_mean","SNR_num_mean", "EdaCMD_mean", "aSMR_max", "SNR_num_max","EdaCMD_max")
-finalDat[,-(1:3)] <- mutate_all(finalDat[,-(1:3)], as.numeric)
-write.csv(finalDat,"BartInputDat.csv", row.names = F)
-finalDat <- read.csv("BartInputDat.csv")
+# colnames(finalDat) <- c("Unit", "BGC", "Spp", "ESuit", "CMD", "FFP", "Eref_sm", 
+#                         "MCMT", "SHM", "TD", "PAS", "DD5_sp", "MSP", "aSMR_min", "SNR_num_min", "EdaCMD_min",  
+#                         "aSMR_mean","SNR_num_mean", "EdaCMD_mean", "aSMR_max", "SNR_num_max","EdaCMD_max")
+fwrite(finalDat,"BartInputDat.csv")
+
 ######################################################################################################
 
-####Create SI models for each species####
-###__________________________________________________________________#####
-
-#####Pull in climatic and site data for each siteseries species in sibecOrig (pull from suitability script)
 SSSuit_Data <- finalDat
-#Harmonize the species labelling in both data sets. Sx for all interior spruce, Pl, Cw, Fd
-SSSuit_Data$Spp <- dplyr::recode(SSSuit_Data$Spp, Cwc="Cw", Fdc = "Fd", Se = "Sx", Sw = "Sx", Plc = "Pl", Bgc = "Bg")
-sibecOrig$TreeSpp <- dplyr::recode(sibecOrig$TreeSpp, Cwc="Cw", Fdc = "Fd", Se = "Sx", Sw = "Sx", Plc = "Pl", Bgc = "Bg")
-
-########## create 2 merged data sets. One where site index data is available and one where it is not.
-# SS_wSibec <- sibecOrig [(sibecOrig$PlotCountSpp > 0),]
-# SS_wSibec <- na.omit (SS_wSibec)
-
-SS_wSibec <- sibecOrig
-SS_SI <- SS_wSibec [,c(9,5,7) ]
-colnames (SS_SI) [1:3] <- c("Unit", "Spp", "SI")
-SS_SI2 <- merge (SS_SI, SSSuit_Data, by = c("Unit","Spp"))
-SS_SI2 <- distinct(SS_SI2)
+SS_SI <- sibecOrig
+colnames (SS_SI) <- c("SS_NoSpace", "Spp", "SI")
+SS_SI2 <- merge (SS_SI, SSSuit_Data, by = c("SS_NoSpace","Spp"))
+SS_SI2 <- unique(SS_SI2)
 Spp_count2 <- SS_SI2 %>%
   group_by(Spp) %>%
   summarise(count = n())
 
 
-Spp.list <- Spp_count2$Spp[Spp_count2$count > 10] %>% as.character()###list of species where there are more than 5 values
+Spp.list <- Spp_count2$Spp [Spp_count2$count >10] ###list of species where there are more than 5 values
 SS_SI2 <- SS_SI2[!is.na(SS_SI2$SI),]
 ###No sibec data - SHould be all site series. Where species does not occur then Site Index is 0
 # SS_noSibec <- sibecOrig [is.na(sibecOrig$PlotCountSpp),]
@@ -133,53 +144,12 @@ SS_SI2 <- SS_SI2[!is.na(SS_SI2$SI),]
 # ###Then build regression model for each species and predict SI for places where values
 
 library(rJava)
-options(java.parameters = "-Xmx10000m")
+options(java.parameters = "-Xmx8000m")
 library(bartMachine)
 set_bart_machine_num_cores(5)
 
-
-BFMods <- foreach(Spp = Spp.list, .combine = c)  %do% {
-  SI_Spp <- SS_SI2 [(SS_SI2$Spp %in% Spp), ]
-  SI_Spp <- SI_Spp[,-c(4,1,2,5)]
-  rownames(SI_Spp) <- NULL
-  
-  bF.fit <- bartMachine(SI_Spp[,-1],SI_Spp$SI, k = 2, nu = 3, q = 0.99, num_trees = 200)
-  list(bF.fit)
-}
-
-names(BFMods) <- Spp.list
-save(BFMods, file = "BFModels.RData")
-
-testDat <- unique(finalDat)
-bartSIPred <- foreach(Spp = Spp.list, .combine = rbind) %do% {
-  szUns <- unique(testDat$BGC[testDat$Spp == Spp]) %>% as.character()
-  testAll <- testDat[testDat$BGC %in% szUns,-(2:4)] %>% unique()
-  mod <- BFMods[[Spp]]
-  test <- testAll[,mod$training_data_features]
-  out <- data.frame(Unit = testAll$Unit, aSMR = testAll$aSMR_mean, SIPred = predict(mod, new_data = test))
-  out$Spp <- Spp
-  ##cbind(out[,c("SIPred","Spp")],testAll)
-  out
-}
-
-bartSIPred <- merge(bartSIPred, sibecOrig[,c(9,5,7)], by.x = c("Unit","Spp"), by.y = c("SS_NoSpace","TreeSpp"), all.x = T)
-bartSIPred <- merge(bartSIPred, suitTbl, by = c("Unit","Spp"), all.x = T)
-bartSIPred <- unique(bartSIPred)
-write.csv(bartSIPred[,c("Unit","Spp","SIPred","aSMR")], "BartPredSI.csv", row.names = F)
-
-SI_Spp$PredSI <- predict(rF.fit, SI_Spp[,-c(1)])
-SI_Pred <- merge(SI_Units, SI_Spp[,c(1,20)], by = 0)
-
-SI_Sppnew <- SS_SInew2 [(SS_SInew2$Spp %in% Spp), ]
-SI_Unitsnew <- SI_Sppnew[, c(4,1,2,5)]
-SI_Sppnew <- SI_Sppnew[, -c(4,1,2,5)]
-SI_Sppnew$PredSI <- predict(rF.fit, SI_Sppnew[,-c(1)])
-SI_Prednew <- merge(SI_Unitsnew, SI_Sppnew[,c(1,20)], by = 0)
-SI_Pred2 <- rbind (SI_Pred, SI_Prednew)
-SI_Pred2
-
 ####model testing
-SI_PredAll <- foreach(Spp = Spp.list, .combine = rbind)  %do% {
+SI_PredAll <- foreach(Spp = SppList, .combine = rbind)  %do% {
   options(stringsAsFactors = FALSE)
   SI_Spp <- SS_SI2 [(SS_SI2$Spp %in% Spp), ]
   SI_Spp <- SI_Spp[,-c(4,1,2,5)]
@@ -192,15 +162,87 @@ SI_PredAll <- foreach(Spp = Spp.list, .combine = rbind)  %do% {
   #                        do.trace = 10, ntree=201, na.action=na.fail, importance=TRUE, proximity=TRUE)
   
   bF.fit <- bartMachine(train[,-1],train$SI, k = 2, nu = 3, q = 0.99, num_trees = 200)
-  
+
   test$BFPred <- predict(bF.fit, test[,-1])
   test$Spp <- Spp
   test
 }
+SS_SI2 <- as.data.table(SS_SI2)
+
+BFMods <- foreach(SppCurr = Spp.list, .combine = c)  %do% {
+  SI_Spp <- SS_SI2 [Spp == SppCurr, ]
+  SI_Spp <- SI_Spp[,-c("SS_NoSpace","Spp","BGC")]
+  rownames(SI_Spp) <- NULL
+  SI_Spp <- as.data.frame(SI_Spp)
+  
+  bF.fit <- bartMachine(SI_Spp[,-1],SI_Spp$SI, k = 2, nu = 3, q = 0.99, num_trees = 200, serialize = TRUE)
+  list(bF.fit)
+}
+
+names(BFMods) <- Spp.list
+save(BFMods, file = "BFModels.RData")
+
+###Predict#############################
+load("BFModels.RData")
+Spp.list <- names(BFMods) %>% as.character()
+
+testDat <- finalDat[,-("BGC")]
+bartSIPred <- foreach(SppCurr = Spp.list, .combine = rbind) %do% {
+  cat("predicting",SppCurr,"\n")
+  mod <- BFMods[[SppCurr]]
+  sub <- testDat[Spp == SppCurr,]
+  sub <- as.data.frame(sub)
+  out <- data.frame(SS_NoSpace = sub$SS_NoSpace,SIPred = predict(mod, new_data = sub[,-c(1:2)]))
+  out$Spp <- SppCurr
+  out
+}
+
+fwrite(bartSIPred, "PredSI_May2020.csv")
 
 
-##################################################################################################################
+bartSIPred <- merge(bartSIPred, sibecOrig[,c(9,5,7)], by.x = c("Unit","Spp"), by.y = c("SS_NoSpace","TreeSpp"), all.x = T)
+write.csv(bartSIPred, "BartPredSI.csv", row.names = F)
 
+SI_Spp$PredSI <- predict(rF.fit, SI_Spp[,-c(1)])
+SI_Pred <- merge(SI_Units, SI_Spp[,c(1,20)], by = 0)
+
+SI_Sppnew <- SS_SInew2 [(SS_SInew2$Spp %in% Spp), ]
+SI_Unitsnew <- SI_Sppnew[, c(4,1,2,5)]
+SI_Sppnew <- SI_Sppnew[, -c(4,1,2,5)]
+SI_Sppnew$PredSI <- predict(rF.fit, SI_Sppnew[,-c(1)])
+SI_Prednew <- merge(SI_Unitsnew, SI_Sppnew[,c(1,20)], by = 0)
+SI_Pred2 <- rbind (SI_Pred, SI_Prednew)
+SI_Pred2
+
+
+    #########fit in oversampling or undersamplin routine here
+  ##
+  X1.sub2 <- X1.sub
+  X1.sub <- SmoteClassif(ESuit ~ ., X1.sub, C.perc = "balance", k= 5 , repl = FALSE, dist = "Euclidean")
+  #X1.sub <- X1.sub2
+  #X1.sub <- SMOTE(ESuit ~ ., X1.sub, perc.over = 500, k=5, perc.under = 100)
+  #X1.sub <- SmoteClassif(ESuit ~ ., X1.sub, C.perc = list(common = 1,rare = 6), k= 5 , repl = FALSE, dist = "Euclidean")
+  
+  #X1.sub <- RandUnderClassif(ESuit ~ ., X1.sub)
+  #X1.sub <- downSample(x= X1.sub[-1], y= X1.sub$ESuit)
+  #####C50############################
+  #n = 9
+  #c50.fit <- C5.0(ESuit ~ ., data=X1.sub, trials = n, control = C5.0Control(winnow=TRUE,seed = 12134))
+  #, rules = TRUE,trials = 3,rules = FALSE,type="class",   sample = 0.1trials = 10,,trials = 5,  subset = TRUE, noGlobalPruning = FALSE
+  
+  #summary(c50.fit)
+  
+  #c50.varimp <- C5imp(c50.fit, metric = "splits", pct = TRUE) # or metric = "splits"
+  #save(c50.fit,file = "vegtreeC50.RData")
+  # return summary output to text file
+  #sink("C5.0summary.txt", append=FALSE, split=FALSE)
+  
+  #sink()
+  #plot (c50.fit)
+  
+  #c50.fit <- randomForest(ESuit ~ .,data=X1.sub, nodesize = 2, 
+  #                        do.trace = 10, ntree=101, na.action=na.fail, importance=TRUE, proximity=TRUE)
+  
   ############test caret ensemble
   
   control <- trainControl(method="cv", number=5, returnResamp = "all",
