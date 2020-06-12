@@ -41,7 +41,7 @@ When you click the **Knit** button a document will be generated that includes bo
 
 ```{r read in data}
 ###########Create full SIBEC Predict Data set from BART model###########
-sibecOrig <- read.csv("SIBECDatRaw.csv")
+sibecOrig <- read.csv("/inputs/SIBEC2020_Cleaned.csv")
 climDat <- fread("BECv11_750Pt_FiveYr_2011_2015MSY.csv", data.table = F)
 climDat <- climDat[climDat$Eref_sm > -1000,]
 climDat <- climDat[,c("ID2","CMD","FFP","Eref_sm","MCMT","SHM","TD","PAS","DD5_sp","MSP")]
