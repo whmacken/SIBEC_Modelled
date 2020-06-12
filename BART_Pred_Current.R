@@ -58,8 +58,7 @@ cppFunction('NumericVector calcASMR(NumericVector rSMR,NumericVector CMD, DataFr
 }')
 
 ###########Create full SIBEC Predict Data set from BART model###########
-setwd("C:/Users/kirid/Desktop/SI-Prediction")
-sibecOrig <- read.csv("SIBEC_Clean.csv")
+sibecOrig <- fread("./inputs/SIBEC_2013_Summary.csv")
 climDat <- fread("./SIPred_wNA/BEC_wNA_250pt_2001-2018MSY.csv")
 climDat <- climDat[Eref_sm > -1000,]
 climDat <- climDat[,c("ID2","CMD","FFP","Eref_sm","MCMT","SHM","TD","PAS","DD5_sp","MSP")]
@@ -87,7 +86,7 @@ CMDeda <- foreach(rel = 0:7,.combine = rbind) %do% {
 
 CMD <- CMDeda %>% set_colnames(c("BGC","EdaCMD","rSMR"))
 
-eda <- fread("Edatopic_v11_20.csv")
+eda <- fread("./inputs/Edatopic_v11_20.csv")
 eda <- eda[is.na(Codes),]
 eda <- eda[,-c(5:12)]
 climAve <- merge(eda[,-1], climAve, by = "BGC", all = T)
@@ -96,12 +95,12 @@ climAve$SNR <- str_sub(climAve$Edatopic, 1,1) %>% str_replace_all(c("A" = "1", "
 climAve$rSMR <-str_sub(climAve$Edatopic, -1,-1) %>% as.numeric()
 climAve <- merge(climAve, CMD, by = c("BGC","rSMR"), all.x = TRUE)
 
-suitTbl <- fread("Feasibility_v11_21.csv")
+suitTbl <- fread("./inputs/Feasibility_v11_21.csv")
 suitTbl <- suitTbl[,c("SS_NoSpace","Spp","Feasible")]
 climAve <- merge(climAve, suitTbl, by = "SS_NoSpace", all.x = T, all.y = F, allow.cartesian = T)
 climAve <- unique(climAve)
 
-rules <- fread("aSMR_Rules_HalfStep_v11_09Dec2019.csv")
+rules <- fread("./inputs/aSMR_Rules_HalfStep_v11_09Dec2019.csv")
 climAve$aSMR <- calcASMR(rSMR = climAve$rSMR, CMD = climAve$EdaCMD, Rules = rules)
 
 climAve <- climAve[!is.na(climAve$SS_NoSpace),]
