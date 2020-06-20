@@ -58,10 +58,10 @@ cppFunction('NumericVector calcASMR(NumericVector rSMR,NumericVector CMD, DataFr
 }')
 
 ###########Create full SIBEC Predict Data set from BART model###########
-sibecOrig <- fread("./inputs/SIBEC_2013_Summary.csv")
-climDat <- fread("./SIPred_wNA/BEC_wNA_250pt_2001-2018MSY.csv")
+sibecOrig <- fread("./inputsGit/SIBEC_2013_Summary.csv")
+climDat <- fread("./inputs/WNA_4k_HexPts_BGC_Normal_1961_1990MSY.csv")
 climDat <- climDat[Eref_sm > -1000,]
-climDat <- climDat[,c("ID2","CMD","FFP","Eref_sm","MCMT","SHM","TD","PAS","DD5_sp","MSP")]
+climDat <- climDat[,c("BGC","CMD","FFP","Eref_sm","MCMT","SHM","TD","PAS","DD5_sp","MSP")]
 colnames(climDat)[1] <- "BGC"
 climAve <- climDat[,lapply(.SD, mean), by = "BGC"]
 CMD <- climAve[,c("BGC","CMD")]
@@ -95,12 +95,12 @@ climAve$SNR <- str_sub(climAve$Edatopic, 1,1) %>% str_replace_all(c("A" = "1", "
 climAve$rSMR <-str_sub(climAve$Edatopic, -1,-1) %>% as.numeric()
 climAve <- merge(climAve, CMD, by = c("BGC","rSMR"), all.x = TRUE)
 
-suitTbl <- fread("./inputs/Feasibility_v11_21.csv")
+suitTbl <- fread("./inputsGit/Feasibility_v11_21.csv")
 suitTbl <- suitTbl[,c("SS_NoSpace","Spp","Feasible")]
 climAve <- merge(climAve, suitTbl, by = "SS_NoSpace", all.x = T, all.y = F, allow.cartesian = T)
 climAve <- unique(climAve)
 
-rules <- fread("./inputs/aSMR_Rules_HalfStep_v11_09Dec2019.csv")
+rules <- fread("./inputsGit/aSMR_Rules_HalfStep_v11_09Dec2019.csv")
 climAve$aSMR <- calcASMR(rSMR = climAve$rSMR, CMD = climAve$EdaCMD, Rules = rules)
 
 climAve <- climAve[!is.na(climAve$SS_NoSpace),]
@@ -148,7 +148,7 @@ library(bartMachine)
 set_bart_machine_num_cores(5)
 
 ####model testing
-SI_PredAll <- foreach(Spp = SppList, .combine = rbind)  %do% {
+SI_PredAll <- foreach(Spp = Spp.list, .combine = rbind)  %do% {
   options(stringsAsFactors = FALSE)
   SI_Spp <- SS_SI2 [(SS_SI2$Spp %in% Spp), ]
   SI_Spp <- SI_Spp[,-c(4,1,2,5)]
