@@ -1,0 +1,138 @@
+---
+title: "SIBEC Regressions"
+author: "Kiri Daust"
+date: "17/06/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE)
+require(dplyr)
+require(ggplot2)
+require(magrittr)
+require(foreach)
+require(reshape2)
+require(reticulate)
+require(Rcpp)
+library(data.table)
+library(scales)
+require(rgdal)
+require(tidyverse)
+```
+
+```{r importData}
+sibec <- fread("./inputs/SIBEC_2013_Summary.csv")
+Spp = "Fd"
+sibec <- sibec[TreeSpp == Spp,]
+sibec[,BGC := gsub("/.*","",SS_NoSpace)]
+sibec[,isMax := MeanPlotSiteIndex == max(MeanPlotSiteIndex), by = .(BGC)]
+sibec <- sibec[(isMax),]
+
+climDat <- fread("C:/Users/kirid/Sync/CCISS_data/CommonTables/WNA_4k_HexPts_BGC_Normal_1961_1990MSY.csv")
+climDat <- climDat[,lapply(.SD, mean), by = .(BGC), .SDcols = 174:252]
+vars <- names(climDat)[-1]
+suit <- fread("C:/Users/kirid/Sync/CCISS_data/CommonTables/Feasibility_v11_21.csv")
+suit <- suit[Spp == "Fd",.(BGC,SS_NoSpace,Spp,Feasible)]
+suit[,isMax := Feasible == min(Feasible), by = .(BGC)]
+suit2 <- suit[(isMax), head(.SD,1), by = .(BGC)]
+sibec <- merge(sibec, suit2, by = "BGC", all = T)
+units <- fread("C:/Users/kirid/Sync/CCISS_data/CommonTables/All_BGCs_v11_21.csv")
+BC.units <- units[DataSet == "BC",Map_Label]
+climDat <- climDat[BGC %in% BC.units,]
+treeClm <- sibec[climDat, on = "BGC"]
+
+minSI <- treeClm[MeanPlotSiteIndex < quantile(MeanPlotSiteIndex,0.03, na.rm = T),.(BGC,MeanPlotSiteIndex,DD5)]
+minVals <- data.table(x = c(mean(minSI$DD5), min(treeClm$DD5)), y = c(mean(minSI$MeanPlotSiteIndex),0))
+dd5Fit <- lm(y ~ x, data = minVals)
+coefs <- dd5Fit$coefficients
+treeClm[is.na(MeanPlotSiteIndex), MeanPlotSiteIndex := coefs[1]+coefs[2]*DD5]
+dat <- treeClm[,c("BGC","MeanPlotSiteIndex",..vars)]
+dat <- unique(dat)
+
+##now hotter units
+climDat <- fread("C:/Users/kirid/Sync/CCISS_data/CommonTables/WNA_4k_HexPts_BGC_Normal_1961_1990MSY.csv")
+climDat <- climDat[,lapply(.SD, mean), by = .(BGC), .SDcols = 174:252]
+units <- fread("C:/Users/kirid/Sync/CCISS_data/CommonTables/All_BGCs_v11_21.csv")
+US.units <- units[DataSet == "USA",Map_Label]
+climDat <- climDat[BGC %in% US.units,]
+suitClm <- suit[climDat, on = "BGC"]
+temp <- suitClm[,.(BGC,Feasible,DD5,DD18,DD18_sm,Eref,CMD)]
+suit.fit <- step(lm(Feasible ~1, data = temp[!is.na(Feasible)]), 
+     scope = list(lower = ~1, upper = ~ DD5*DD18*Eref*CMD), trace = 3)
+suitClm[CMD > quantile(CMD,0.95) & DD18 > quantile(DD18, 0.95), MeanPlotSiteIndex := 5]
+suitClm <- suitClm[!is.na(MeanPlotSiteIndex),c("BGC","MeanPlotSiteIndex",..vars)]
+dat <- rbind(dat, suitClm)
+
+# climDat <- suit[climDat, on = "BGC"]
+# treeClm <- climDat[sibec, on = "BGC"]
+# treeClm <- treeClm[!is.na(treeClm$DD5),]
+# datCoast <- treeClm[grep("^C.*",BGC),]
+# datInterior <- treeClm[!BGC %in% datCoast$BGC,]
+# temp <- datInterior[,c("MeanPlotSiteIndex",..vars)]
+# temp <- datCoast[,c("MeanPlotSiteIndex",..vars)]
+
+rf <- randomForest(MeanPlotSiteIndex ~ ., data = temp, importance = T, proximity = T)
+imp <- importance(rf)
+treeClm[,eq1 := 2.801+0.0616*DD5-0.0202*DD_18-0.1536*Eref]
+# treeClm[,eq2 := DD5*0.022]
+# plot(MeanPlotSiteIndex ~ eq1, data = treeClm)
+# 
+
+modInt <- step(lm(MeanPlotSiteIndex ~1, data = datInterior), 
+     scope = list(lower = ~1, upper = ~ DD5*DD_18*Eref*CMD*PAS_wt), trace = 3)
+summary(modInt)
+plot(datInterior$MeanPlotSiteIndex,modInt$fitted.values)
+
+modCoast <- step(lm(MeanPlotSiteIndex ~1, data = datCoast), 
+     scope = list(lower = ~1, upper = ~ DD5*DD_18*Eref*CMD*PAS_wt), trace = 3)
+summary(modCoast)
+plot(datCoast$MeanPlotSiteIndex,modCoast$fitted.values)
+
+
+
+modAll <- step(lm(MeanPlotSiteIndex ~1, data = dat), 
+     scope = list(lower = ~1, upper = ~ DD5*DD_18*Eref*CMD*PAS_wt), trace = 3)
+summary(modAll)
+plot(dat$MeanPlotSiteIndex,modAll$fitted.values)
+
+
+
+
+
+
+
+
+
+fit2 <- lm(MeanPlotSiteIndex ~ DD5 + DD_18 + Eref + CMD + DD5:DD_18 + 
+    DD5:Eref + DD_18:Eref + DD5:CMD + DD5:DD_18:Eref, data = treeClm)
+plot(treeClm$MeanPlotSiteIndex,fit2$fitted.values)
+
+fit2 <- lm(MeanPlotSiteIndex ~ DD5 + DD_18 + Eref + CMD + DD5:DD_18, data = treeClm)
+plot(treeClm$MeanPlotSiteIndex,fit2$fitted.values)
+
+coefs <- fit2$coefficients
+treeClm[,eq3 := coefs[1]+coefs[2]*DD5+coefs[3]*DD_18+coefs[4]*Eref+coefs[5]*DD5*DD_18]
+treeClm[,testEq := 8.492 + 0.0222*Eref]
+```
+Predict into US BGCs
+
+```{r USPred}
+climUS <- fread("C:/Users/kirid/Sync/CCISS_data/CommonTables/WNA_4k_HexPts_BGC_Normal_1961_1990MSY.csv")
+climUS <- climUS[,lapply(.SD, mean), by = .(BGC), .SDcols = 174:252]
+vars <- names(climUS)[-1]
+
+climUS[grep("^C.*",BGC),PredSI := predict(modCoast, newdata = climUS[grep("^C.*",BGC),-1])]
+climUS[is.na(PredSI),PredSI := predict(modInt, newdata = climUS[is.na(PredSI),-1])]
+climUS$PredSI <- predict(modAll, newdata = climUS[,-1])
+#climUS$BGC <- factor(climUS$BGC, levels = climUS$BGC[order(climUS$DD5)])
+pred <-  climUS[,.(BGC,DD5,PredSI)]
+pred <- pred[PredSI > 0,]
+pred[PredSI < -5 | PredSI > 40, Lab := BGC]
+
+ggplot(pred, aes(x = DD5, y = PredSI))+
+  geom_point()+
+  geom_text(aes(label = Lab), size = 3)
+
+
+suit <- pred[suit, on = "BGC"]
+```
