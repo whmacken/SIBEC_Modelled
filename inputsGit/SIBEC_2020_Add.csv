@@ -64,7 +64,7 @@ PPxk_OR,Py,19,Simpson E. Or. Cascades
 PPxk_OR,Oa,12,Simpson E. Or. Cascades
 PPxk_OR,Pl,14,Simpson E. Or. Cascades
 PPxk_OR,At,14,Simpson E. Or. Cascades
-Msxk_OR,Fd,27,Johnson Blue-Ochoco MTns
+MSxk_OR,Fd,27,Johnson Blue-Ochoco MTns
 Msxk_OR,Lw,21,Johnson Blue-Ochoco MTns
 Msxk_OR,Bl,21,Johnson Blue-Ochoco MTns
 Msxk_OR,Se,21,Johnson Blue-Ochoco MTns
@@ -79,9 +79,20 @@ ESSFxw_OR,Lw,21,Johnson Blue-Ochoco MTns
 ESSFxw_OR,Pl,14,Johnson Blue-Ochoco MTns
 ESSFxw_OR,Se,21,Johnson Blue-Ochoco MTns
 ESSFxw_OR,Bl,21,Johnson Blue-Ochoco MTns
-GBDdw_UT,Fd,0,WHM - known limit
-CVGdm_CA,Fd,0,WHM - known limit
 OWun_CA,Fd,0,WHM - known limit
-BGwm_WA,Fd,0,WHM - known limit
-ESSFmc,Fd,0,WHM - known limit
-IMAun,Fd,0,WHM - known limit
+MHmm1,Fd,0,WHM - known limit
+ESSFxkp_UT,Fd,0,WHM - known limit
+GDBdw_UT,Fd,0,WHM - known limit
+GBDxx_UT,Fd,0,WHM - known limit
+GBDxh_NV,Fd,0,WHM - known limit
+BAFAun,Pl,0,WHM - known limit
+IMAun,Pl,0,WHM - known limit
+ESSFmc,Lw,0,WHM - known limit
+ESSFmc,Cw,0,WHM - known limit
+ESSFmc,At,0,WHM - known limit
+ESSFwmp_MT,Fd,0,WHM - known limit
+ESSFvc,Fd,0,WHM - known limit
+SASbo,Fd,0,WHM - known limit
+CCHun_CA,Fd,0,WHM - known limit
+CVGdm_CA,Fd,0,WHM - known limit
+MSSDun_NV,Fd,0,WHM - known limit
