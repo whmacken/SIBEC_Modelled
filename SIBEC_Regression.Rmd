@@ -23,40 +23,54 @@ require(randomForest)
 
 ```{r importData}
 sibec <- fread("./inputsGit/SIBEC_2020_updatesof2013.csv")
-sibec_add <- fread("./inputsGit/SIBEC_2020_Add.csv")
+sibec_add <- fread("./inputsGit/SIBEC_2020_Add.csv") ## additional SI Max values added
 sibec_add <- sibec_add %>% dplyr::select(-Source)
 sibec <- rbind(sibec, sibec_add)
-MaxSppSI <-  fread("./inputsGit/MaxSppSI.csv")
-Spp = "Fd"
+MaxSppSI <-  fread("./inputsGit/MaxSppSI.csv") ## file with highest know SI values by species
+
+Spp = "Bg"
 SppMaxSI <- MaxSppSI[MaxSppSI$Sp %in% Spp,]
 sibec <- sibec[TreeSpp == Spp,]
 sibec[,BGC := gsub("/.*","",SS_NoSpace)]
+
 sibec[,isMax := MeanPlotSiteIndex == max(MeanPlotSiteIndex), by = .(BGC)]
 simax <- sibec[(isMax),] 
 simax <- simax %>% dplyr::rename (XSI = MeanPlotSiteIndex)
+
+###----will need to remove or adjust the SI where the max is on suboptimal CMD sites (e.g. where species only occurs on warm, dry sites)
+
+##-------Removed for Fd curves
+simax <- simax %>% filter(!str_detect(simax$BGC, ("CDFmm|SBPSxc|IDFxm|ESSFmw|IDFdk4|ESSFxw_OR|IDFxh2|IDFdm2|IDFdm1|IDFxw|IDFxh1|IDFdk|SBSmw|SBSdw|ICHmk")))
+
+##-------Removed for Bg curves
+#simax <- simax %>% filter(!str_detect(simax$BGC, ("CDFmm|SBPSxc|IDFxm|ESSFmw|IDFdk4|ESSFxw_OR|IDFxh2|IDFdm2|IDFdm1|IDFxw|IDFxh1|IDFdk|SBSmw|SBSdw|ICHmk")))
+
 
 #climDat <- fread("C:/Users/kirid/Sync/CCISS_data/CommonTables/WNA_4k_HexPts_BGC_Normal_1961_1990MSY.csv")
 climDat0 <- fread("C:/Users/whmacken/Sync/CCISS_data/CommonTables/WNA_4k_HexPts_BGC_Normal_1961_1990MSY.csv")
 climDat <- climDat0[,lapply(.SD, mean), by = .(BGC), .SDcols = 174:252]
 
-climSI <- left_join(simax, climDat) %>% dplyr::select(BGC, XSI, DD5, DD18, EXT) %>% mutate(XSIadj = ifelse (DD5 >= 1100, XSI + ((DD5 - 1100) *.02), XSI))
+climSI <- left_join(simax, climDat) %>% dplyr::select(BGC, XSI, DD5, DD18, EXT) #%>% mutate(XSIadj = ifelse (DD5 >= 1100, XSI + ((DD5 - 1100) *.02), XSI))
 coastSI <- climSI %>% dplyr::filter(str_detect(BGC, ("CWH|CDF|CMX|MH|MHRF|CVG|CRF|CMA|CWF|CCH|IDFww")))#, "CMX", "MH", "MHRF", "CVG", "CRF")))
 interSI<- climSI %>% dplyr::filter(!str_detect(BGC, ("CWH|CDF|CMX|MH|MHRF|CVG|CRF|CMA|CWF|CCH|IDFww")))#, "CMX", "MH", "MHRF", "CVG", "CRF")))
+
+clim_coast <- climDat %>% dplyr::filter(str_detect(BGC, ("CWH|CDF|CMX|MH|MHRF|CVG|CRF|CMA|CWF|CCH|IDFww"))) %>% dplyr::select(BGC, DD5, DD18, EXT) 
+clim_inter <- climDat %>% dplyr::filter(!str_detect(BGC, ("CWH|CDF|CMX|MH|MHRF|CVG|CRF|CMA|CWF|CCH|IDFww"))) %>% dplyr::select(BGC, DD5, DD18, EXT) 
 
 SImaxc <- SppMaxSI[SppMaxSI$cos_int == "c", ]
 pc <- ggplot(coastSI, aes(x = DD5, y = XSI))+
   geom_point() +
   #geom_point(shape = 21, fill = "red", size = 1)+
-  #geom_jitter(width = 0) +
+  geom_jitter(width = 0) +
   scale_y_continuous(limit = c(0, 45))+
-     scale_x_continuous(limit = c(0, 3000))+
+     scale_x_continuous(limit = c(0, 5000))+
     ggtitle("DD5 range by Coastal BGC")+
   geom_text (aes(label= BGC), size = 4, hjust = -.1, position = position_dodge(width=1) )+
-  geom_abline(intercept = -11, slope = .042, color = "green")+
-  geom_abline(intercept = -1.86715, slope = .0263, color = "red")+
+  #geom_abline(intercept = -11, slope = .042, color = "green")+
+  #geom_abline(intercept = -1.86715, slope = .0263, color = "red")+
   geom_hline(yintercept= (SppMaxSI$MaxSI), linetype="dashed", color = "red")+
-geom_smooth(method = "loess")+
-  geom_smooth(method = "lm")
+geom_smooth(method = "loess")
+  #geom_smooth(method = "lm")
 
   #scale_y_continuous("DD5", breaks=seq(0,8000,500))+
   #theme_bw()
@@ -72,18 +86,18 @@ SImaxi <- SppMaxSI[SppMaxSI$cos_int == "i", ]
 pi <- ggplot(interSI, aes(x = DD5, y = XSI))+
   geom_point() +
   #geom_point(shape = 21, fill = "red", size = 1)+
-  #geom_jitter(width = 0) +
+  geom_jitter(width = 0) +
  # coord_flip()+
     ggtitle("SI by DD5 Interior")+   xlab ("DD5")+
    scale_x_continuous(limit = c(0, 3000))+
   scale_y_continuous(limit = c(0, 45))+
   #geom_segment(aes(x=350, y=0, xend=1100, yend = 28))+
-  geom_abline(intercept = -11, slope = .042, color = "green")+
-  geom_abline(intercept = -1.86715, slope = .0263, color = "red")+
+  #geom_abline(intercept = -11, slope = .042, color = "green")+
+  #geom_abline(intercept = -1.86715, slope = .0263, color = "red")+
   geom_hline(yintercept = (SImaxi$MaxSI), linetype="dashed", color = "red")+
     geom_text (aes(label= BGC), size = 4, hjust = -.1, position = position_dodge(width=1) )+
-geom_smooth(method = "loess")+
-geom_smooth(method = "lm")
+geom_smooth(method = "loess")
+#geom_smooth(method = "lm")
 
 #+
   #theme_bw()
@@ -96,9 +110,51 @@ plot(pi)
 ```
 
 ```{r build loess and extrapolate}
-
+## interior
 spp.lo <- loess(XSI ~ DD5, interSI, control = loess.control(surface = "direct"))
-predict(spp.lo, data.frame(DD5 = seq(0, 3000, 500)), se = TRUE)
+#predict(spp.lo, data.frame(DD5 = seq(0, 3000, 100)), se = TRUE)
+PredictedSI <- predict(spp.lo, newdata = clim_inter , se = F)
+PredictedSI_int <- cbind(clim_inter, PredictedSI)
+write.csv(PredictedSI_int, paste0("./outputs/", Spp, "_interior_SIpotential_predicted.csv"))
+
+#pi <- 
+  ggplot(PredictedSI_int, aes(x = DD5, y = PredictedSI))+
+  geom_point() +
+  #geom_point(shape = 21, fill = "red", size = 1)+
+  geom_jitter(width = 0) +
+  scale_y_continuous(limit = c(0, 45))+
+     scale_x_continuous(limit = c(0, 5000))+
+    ggtitle("DD5 range by Coastal BGC")+
+  geom_text (aes(label= BGC), size = 2, hjust = -.1, position = position_dodge(width=1) )+
+  #geom_abline(intercept = -11, slope = .042, color = "green")+
+  #geom_abline(intercept = -1.86715, slope = .0263, color = "red")+
+  geom_hline(yintercept= (SppMaxSI$MaxSI), linetype="dashed", color = "red")+
+geom_smooth(method = "loess")
+
+ggsave(paste0 ("./outputs/", Spp, "_interior_SIpotential_predicted.jpg"))
+
+
+## coast
+spp.lo2 <- loess(XSI ~ DD5, coastSI, control = loess.control(surface = "direct"))
+#predict(spp.lo2, data.frame(DD5 = seq(0, 3000, 100)), se = TRUE)
+PredictedSI2 <- predict(spp.lo2, newdata = clim_coast , se = F)
+PredictedSI_coast <- cbind(clim_coast, PredictedSI2)
+write.csv(PredictedSI_coast, paste0("./outputs/", Spp, "_coast_SIpotential_predicted.csv"))
+
+#pc <- 
+  ggplot(PredictedSI_coast, aes(x = DD5, y = PredictedSI2))+
+  geom_point() +
+  #geom_point(shape = 21, fill = "red", size = 1)+
+  geom_jitter(width = 0) +
+  scale_y_continuous(limit = c(0, 45))+
+     scale_x_continuous(limit = c(0, 5000))+
+    ggtitle("DD5 range by Coastal BGC")+
+  geom_text (aes(label= BGC), size = 2, hjust = -.1, position = position_dodge(width=1) )+
+  #geom_abline(intercept = -11, slope = .042, color = "green")+
+  #geom_abline(intercept = -1.86715, slope = .0263, color = "red")+
+  geom_hline(yintercept= (SppMaxSI$MaxSI), linetype="dashed", color = "red")+
+geom_smooth(method = "loess")
+ggsave(paste0 ("./outputs/", Spp, "_coast_SIpotential_predicted.jpg"))
 
 ```
 
