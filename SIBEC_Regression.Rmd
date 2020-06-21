@@ -18,25 +18,100 @@ library(data.table)
 library(scales)
 require(rgdal)
 require(tidyverse)
+require(randomForest)
 ```
 
 ```{r importData}
-sibec <- fread("./inputs/SIBEC_2013_Summary.csv")
+sibec <- fread("./inputsGit/SIBEC_2020_updatesof2013.csv")
+sibec_add <- fread("./inputsGit/SIBEC_2020_Add.csv")
+sibec_add <- sibec_add %>% dplyr::select(-Source)
+sibec <- rbind(sibec, sibec_add)
+MaxSppSI <-  fread("./inputsGit/MaxSppSI.csv")
 Spp = "Fd"
+SppMaxSI <- MaxSppSI[MaxSppSI$Sp %in% Spp,]
 sibec <- sibec[TreeSpp == Spp,]
 sibec[,BGC := gsub("/.*","",SS_NoSpace)]
 sibec[,isMax := MeanPlotSiteIndex == max(MeanPlotSiteIndex), by = .(BGC)]
-sibec <- sibec[(isMax),]
+simax <- sibec[(isMax),] 
+simax <- simax %>% dplyr::rename (XSI = MeanPlotSiteIndex)
 
-climDat <- fread("C:/Users/kirid/Sync/CCISS_data/CommonTables/WNA_4k_HexPts_BGC_Normal_1961_1990MSY.csv")
-climDat <- climDat[,lapply(.SD, mean), by = .(BGC), .SDcols = 174:252]
+#climDat <- fread("C:/Users/kirid/Sync/CCISS_data/CommonTables/WNA_4k_HexPts_BGC_Normal_1961_1990MSY.csv")
+climDat0 <- fread("C:/Users/whmacken/Sync/CCISS_data/CommonTables/WNA_4k_HexPts_BGC_Normal_1961_1990MSY.csv")
+climDat <- climDat0[,lapply(.SD, mean), by = .(BGC), .SDcols = 174:252]
+
+climSI <- left_join(simax, climDat) %>% dplyr::select(BGC, XSI, DD5, DD18, EXT) %>% mutate(XSIadj = ifelse (DD5 >= 1100, XSI + ((DD5 - 1100) *.02), XSI))
+coastSI <- climSI %>% dplyr::filter(str_detect(BGC, ("CWH|CDF|CMX|MH|MHRF|CVG|CRF|CMA|CWF|CCH|IDFww")))#, "CMX", "MH", "MHRF", "CVG", "CRF")))
+interSI<- climSI %>% dplyr::filter(!str_detect(BGC, ("CWH|CDF|CMX|MH|MHRF|CVG|CRF|CMA|CWF|CCH|IDFww")))#, "CMX", "MH", "MHRF", "CVG", "CRF")))
+
+SImaxc <- SppMaxSI[SppMaxSI$cos_int == "c", ]
+pc <- ggplot(coastSI, aes(x = DD5, y = XSI))+
+  geom_point() +
+  #geom_point(shape = 21, fill = "red", size = 1)+
+  #geom_jitter(width = 0) +
+  scale_y_continuous(limit = c(0, 45))+
+     scale_x_continuous(limit = c(0, 3000))+
+    ggtitle("DD5 range by Coastal BGC")+
+  geom_text (aes(label= BGC), size = 4, hjust = -.1, position = position_dodge(width=1) )+
+  geom_abline(intercept = -11, slope = .042, color = "green")+
+  geom_abline(intercept = -1.86715, slope = .0263, color = "red")+
+  geom_hline(yintercept= (SppMaxSI$MaxSI), linetype="dashed", color = "red")+
+geom_smooth(method = "loess")+
+  geom_smooth(method = "lm")
+
+  #scale_y_continuous("DD5", breaks=seq(0,8000,500))+
+  #theme_bw()
+  #geom_text (aes(label= BGC), size = 1, hjust = -1, position = position_dodge(width=1) )#
+#ggsave("./outputs/CMD_ranges of Expert aSMR of Zonal.pdf", plot = p, dpi = "print", device = "pdf", width = 15, height = 15, units = "cm")
+#ggsave("./outputs/CMD_ranges.png", plot = p, dpi = "print", device = "png", width = 15, height = 15, units = "cm")
+plot(pc)
+
+
+interSI2 <- interSI %>% filter(DD5 <=750)
+SImaxi <- SppMaxSI[SppMaxSI$cos_int == "i", ]
+#interSI2 <- interSI %>% dplyr::filter(!str_detect (BGC, "PPxh1|BGxh2|BGxh1"))
+pi <- ggplot(interSI, aes(x = DD5, y = XSI))+
+  geom_point() +
+  #geom_point(shape = 21, fill = "red", size = 1)+
+  #geom_jitter(width = 0) +
+ # coord_flip()+
+    ggtitle("SI by DD5 Interior")+   xlab ("DD5")+
+   scale_x_continuous(limit = c(0, 3000))+
+  scale_y_continuous(limit = c(0, 45))+
+  #geom_segment(aes(x=350, y=0, xend=1100, yend = 28))+
+  geom_abline(intercept = -11, slope = .042, color = "green")+
+  geom_abline(intercept = -1.86715, slope = .0263, color = "red")+
+  geom_hline(yintercept = (SImaxi$MaxSI), linetype="dashed", color = "red")+
+    geom_text (aes(label= BGC), size = 4, hjust = -.1, position = position_dodge(width=1) )+
+geom_smooth(method = "loess")+
+geom_smooth(method = "lm")
+
+#+
+  #theme_bw()
+  #geom_text (aes(label= BGC), size = 4, hjust = -.1, position = position_dodge(width=1) )#
+#ggsave("./outputs/CMD_ranges of Expert aSMR of Zonal.pdf", plot = p, dpi = "print", device = "pdf", width = 15, height = 15, units = "cm")
+#ggsave("./outputs/CMD_ranges.png", plot = p, dpi = "print", device = "png", width = 15, height = 15, units = "cm")
+plot(pi)
+
+
+```
+
+```{r build loess and extrapolate}
+
+spp.lo <- loess(XSI ~ DD5, interSI, control = loess.control(surface = "direct"))
+predict(spp.lo, data.frame(DD5 = seq(0, 3000, 500)), se = TRUE)
+
+```
+
+
 vars <- names(climDat)[-1]
-suit <- fread("C:/Users/kirid/Sync/CCISS_data/CommonTables/Feasibility_v11_21.csv")
+#suit <- fread("C:/Users/kirid/Sync/CCISS_data/CommonTables/Feasibility_v11_21.csv")
+suit <- fread("C:/Users/whmacken/Sync/CCISS_data/CommonTables/Feasibility_v11_21.csv")
 suit <- suit[Spp == "Fd",.(BGC,SS_NoSpace,Spp,Feasible)]
 suit[,isMax := Feasible == min(Feasible), by = .(BGC)]
 suit2 <- suit[(isMax), head(.SD,1), by = .(BGC)]
 sibec <- merge(sibec, suit2, by = "BGC", all = T)
-units <- fread("C:/Users/kirid/Sync/CCISS_data/CommonTables/All_BGCs_v11_21.csv")
+#units <- fread("C:/Users/kirid/Sync/CCISS_data/CommonTables/All_BGCs_v11_21.csv")
+units <- fread("C:/Users/whmacken/Sync/CCISS_data/CommonTables/All_BGCs_v11_21.csv")
 BC.units <- units[DataSet == "BC",Map_Label]
 climDat <- climDat[BGC %in% BC.units,]
 treeClm <- sibec[climDat, on = "BGC"]
@@ -50,9 +125,10 @@ dat <- treeClm[,c("BGC","MeanPlotSiteIndex",..vars)]
 dat <- unique(dat)
 
 ##now hotter units
-climDat <- fread("C:/Users/kirid/Sync/CCISS_data/CommonTables/WNA_4k_HexPts_BGC_Normal_1961_1990MSY.csv")
-climDat <- climDat[,lapply(.SD, mean), by = .(BGC), .SDcols = 174:252]
-units <- fread("C:/Users/kirid/Sync/CCISS_data/CommonTables/All_BGCs_v11_21.csv")
+#climDat <- fread("C:/Users/kirid/Sync/CCISS_data/CommonTables/WNA_4k_HexPts_BGC_Normal_1961_1990MSY.csv")
+climDat <- climDat0[,lapply(.SD, mean), by = .(BGC), .SDcols = 174:252]
+#units <- fread("C:/Users/kirid/Sync/CCISS_data/CommonTables/All_BGCs_v11_21.csv")
+units <- fread("C:/Users/whmacken/Sync/CCISS_data/CommonTables/All_BGCs_v11_21.csv")
 US.units <- units[DataSet == "USA",Map_Label]
 climDat <- climDat[BGC %in% US.units,]
 suitClm <- suit[climDat, on = "BGC"]
@@ -63,13 +139,15 @@ suitClm[CMD > quantile(CMD,0.95) & DD18 > quantile(DD18, 0.95), MeanPlotSiteInde
 suitClm <- suitClm[!is.na(MeanPlotSiteIndex),c("BGC","MeanPlotSiteIndex",..vars)]
 dat <- rbind(dat, suitClm)
 
-# climDat <- suit[climDat, on = "BGC"]
-# treeClm <- climDat[sibec, on = "BGC"]
-# treeClm <- treeClm[!is.na(treeClm$DD5),]
-# datCoast <- treeClm[grep("^C.*",BGC),]
-# datInterior <- treeClm[!BGC %in% datCoast$BGC,]
-# temp <- datInterior[,c("MeanPlotSiteIndex",..vars)]
-# temp <- datCoast[,c("MeanPlotSiteIndex",..vars)]
+climDat <- suit[climDat, on = "BGC"]
+treeClm <- climDat[sibec, on = "BGC"]
+treeClm <- treeClm[!is.na(treeClm$DD5),]
+datCoast <- treeClm %>% dplyr::filter(str_detect(BGC, ("CWH|CDF|CMX|MH|MHRF|CVG|CRF|CMA|CWF|CCH")))#, "CMX", "MH", "MHRF", "CVG", "CRF")))
+datInterior <- treeClm%>% dplyr::filter(!str_detect(BGC, ("CWH|CDF|CMX|MH|MHRF|CVG|CRF|CMA|CWF|CCH")))#, "CMX", "MH", "MHRF", "CVG", "CRF")))
+#datCoast <- treeClm[grep("^C.*",BGC),]
+#datInterior <- treeClm[!BGC %in% datCoast$BGC,]
+temp <- datInterior[,c("MeanPlotSiteIndex",..vars)]
+#temp <- datCoast[,c("MeanPlotSiteIndex",..vars)]
 
 rf <- randomForest(MeanPlotSiteIndex ~ ., data = temp, importance = T, proximity = T)
 imp <- importance(rf)
@@ -78,7 +156,7 @@ treeClm[,eq1 := 2.801+0.0616*DD5-0.0202*DD_18-0.1536*Eref]
 # plot(MeanPlotSiteIndex ~ eq1, data = treeClm)
 # 
 
-modInt <- step(lm(MeanPlotSiteIndex ~1, data = datInterior), 
+modInt <- step(lm(MeanPlotSiteIndex ~1, data = dat), 
      scope = list(lower = ~1, upper = ~ DD5*DD_18*Eref*CMD*PAS_wt), trace = 3)
 summary(modInt)
 plot(datInterior$MeanPlotSiteIndex,modInt$fitted.values)
@@ -117,8 +195,8 @@ treeClm[,testEq := 8.492 + 0.0222*Eref]
 Predict into US BGCs
 
 ```{r USPred}
-climUS <- fread("C:/Users/kirid/Sync/CCISS_data/CommonTables/WNA_4k_HexPts_BGC_Normal_1961_1990MSY.csv")
-climUS <- climUS[,lapply(.SD, mean), by = .(BGC), .SDcols = 174:252]
+#climUS <- fread("C:/Users/kirid/Sync/CCISS_data/CommonTables/WNA_4k_HexPts_BGC_Normal_1961_1990MSY.csv")
+climUS <- climDat0[,lapply(.SD, mean), by = .(BGC), .SDcols = 174:252]
 vars <- names(climUS)[-1]
 
 climUS[grep("^C.*",BGC),PredSI := predict(modCoast, newdata = climUS[grep("^C.*",BGC),-1])]
@@ -136,3 +214,70 @@ ggplot(pred, aes(x = DD5, y = PredSI))+
 
 suit <- pred[suit, on = "BGC"]
 ```
+
+
+```{r simple model}
+sibec <- fread("./inputsGit/SIBEC_2013_Summary.csv")
+Spp = "Fd"
+sibec <- sibec[TreeSpp == Spp,]
+sibec[,BGC := gsub("/.*","",SS_NoSpace)]
+sibec[,isMax := MeanPlotSiteIndex == max(MeanPlotSiteIndex), by = .(BGC)]
+sibec <- sibec[(isMax),]
+
+#climDat <- fread("C:/Users/kirid/Sync/CCISS_data/CommonTables/WNA_4k_HexPts_BGC_Normal_1961_1990MSY.csv")
+climDat0 <- fread("C:/Users/whmacken/Sync/CCISS_data/CommonTables/WNA_4k_HexPts_BGC_Normal_1961_1990MSY.csv")
+climDat <- climDat0[,lapply(.SD, mean), by = .(BGC), .SDcols = 174:252]
+vars <- names(climDat)[-1]
+#suit <- fread("C:/Users/kirid/Sync/CCISS_data/CommonTables/Feasibility_v11_21.csv")
+suit <- fread("C:/Users/whmacken/Sync/CCISS_data/CommonTables/Feasibility_v11_21.csv")
+suit <- suit[Spp == "Fd",.(BGC,SS_NoSpace,Spp,Feasible)]
+suit[,isMax := Feasible == min(Feasible), by = .(BGC)]
+suit2 <- suit[(isMax), head(.SD,1), by = .(BGC)]
+sibec <- merge(sibec, suit2, by = "BGC", all = T)
+#units <- fread("C:/Users/kirid/Sync/CCISS_data/CommonTables/All_BGCs_v11_21.csv")
+units <- fread("C:/Users/whmacken/Sync/CCISS_data/CommonTables/All_BGCs_v11_21.csv")
+BC.units <- units[DataSet == "BC",Map_Label]
+climDat <- climDat[BGC %in% BC.units,]
+treeClm <- sibec[climDat, on = "BGC"]
+
+
+```
+
+
+```{r simple regression}
+require(forcats)
+require(stringr)
+
+#allDat$ID2 <- as.character(allDat$ID2)
+coastDat <- allDat %>% dplyr::filter(str_detect(ID2, ("CWH|CDF|CMX|MH|MHRF|CVG|CRF|CMA|CWF|CCH")))#, "CMX", "MH", "MHRF", "CVG", "CRF")))
+interDat <- allDat %>% dplyr::filter(!str_detect(ID2, ("CWH|CDF|CMX|MH|MHRF|CVG|CRF|CMA|CWF|CCH")))#, "CMX", "MH", "MHRF", "CVG", "CRF")))
+pc <- ggplot(coastDat, aes(x = fct_reorder(ID2, DD18), y = DD18))+
+  geom_point() +
+  #geom_point(shape = 21, fill = "red", size = 1)+
+  #geom_jitter(width = 0) +
+  coord_flip()+
+    ggtitle("DD5 range by Coastal BGC")+
+  xlab ("BGC")+
+  #scale_y_continuous("DD5", breaks=seq(0,8000,500))+
+  theme_bw()
+  #geom_text (aes(label= BGC), size = 1, hjust = -1, position = position_dodge(width=1) )#
+#ggsave("./outputs/CMD_ranges of Expert aSMR of Zonal.pdf", plot = p, dpi = "print", device = "pdf", width = 15, height = 15, units = "cm")
+#ggsave("./outputs/CMD_ranges.png", plot = p, dpi = "print", device = "png", width = 15, height = 15, units = "cm")
+plot(pc)
+
+pi <- ggplot(interDat, aes(x = fct_reorder(ID2, DD18), y = DD18))+
+  geom_boxplot() +
+  #geom_point(shape = 21, fill = "red", size = 1)+
+  #geom_jitter(width = 0) +
+  coord_flip()+
+    ggtitle("DD5 range by Interior BGC")+
+  xlab ("BGC")+
+  #scale_y_continuous("DD5", breaks=seq(0,8000,500))+
+  theme_bw()
+  #geom_text (aes(label= BGC), size = 1, hjust = -1, position = position_dodge(width=1) )#
+#ggsave("./outputs/CMD_ranges of Expert aSMR of Zonal.pdf", plot = p, dpi = "print", device = "pdf", width = 15, height = 15, units = "cm")
+#ggsave("./outputs/CMD_ranges.png", plot = p, dpi = "print", device = "png", width = 15, height = 15, units = "cm")
+plot(pi)
+
+
+``` 
