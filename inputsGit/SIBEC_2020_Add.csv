@@ -1,0 +1,87 @@
+SS_NoSpace,TreeSpp,MeanPlotSiteIndex,Source
+ESSFmcp,Bl,5,WHM - known limit
+BAFAun,Bl,0,
+ESSFwvp,Bl,5,
+ESSFwcp,Bl,5,
+ESSFdcp,Bl,5,
+ESSFdvp,Bl,5,
+ESSFdkp,Bl,5,
+IMAun,Bl,0,
+ESSFmcp,Sx,5,
+BAFAun,Sx,0,
+ESSFwvp,Sx,5,
+ESSFwcp,Sx,5,
+ESSFdcp,Sx,5,
+ESSFdvp,Sx,5,
+ESSFdkp,Sx,5,
+IMAun,Sx,0,
+CWHdm_OR,Fd,45,McCain W.OR Cascades
+CWHvm_OR,Fd,40,McCain W.OR Cascades
+CWHvm_OR,Bp,40,McCain W.OR Cascades
+CWHvm_OR,Hw,40,McCain W.OR Cascades
+IWFdw_OR,Fd,32,McCain W.OR Cascades
+MHdm_OR,Hm,12,Simpson E. Or. Cascades
+MHdm_OR,Bl,12,Simpson E. Or. Cascades
+MHdm_OR,Pl,12,Simpson E. Or. Cascades
+MHdm_OR,Bc,18,Simpson E. Or. Cascades
+MHdm_OR,Bm,18,Simpson E. Or. Cascades
+MHdm_OR,Ba,18,Simpson E. Or. Cascades
+MHdm_OR,Bp,18,Simpson E. Or. Cascades
+MHdm_OR,Pw,18,Simpson E. Or. Cascades
+MHdm_OR,Se,18,Simpson E. Or. Cascades
+MHdm_OR,Bg,18,Simpson E. Or. Cascades
+CWHms_OR,Fd,32,McCain W.OR Cascades
+CWHms_OR,Bg,30,Simpson E. Or. Cascades
+CWHms_OR,Hw,30,McCain W.OR Cascades
+CWHms_OR,Pw,27,Simpson E. Or. Cascades
+CWHms_OR,Se,26,Simpson E. Or. Cascades
+CWHms_OR,Bp,30,Simpson E. Or. Cascades
+CWHms_OR,Bc,30,Simpson E. Or. Cascades
+CWHms_OR,Cw,18,Simpson E. Or. Cascades
+CWHms_OR,Pl,18,Simpson E. Or. Cascades
+CWHms_OR,Bg,22,Simpson E. Or. Cascades
+IWFdw_OR,Bg,27,Simpson E. Or. Cascades
+IWFdw_OR,Ps,30,Simpson E. Or. Cascades
+IWFdw_OR,Se,24,Simpson E. Or. Cascades
+IWFdw_OR,Bm,20,Simpson E. Or. Cascades
+IWFdw_OR,Bc,27,Simpson E. Or. Cascades
+IWFdw_OR,Py,35,Simpson E. Or. Cascades
+IWFdw_OR,Pl,19,Simpson E. Or. Cascades
+IWFdw_OR,Oa,24,Simpson E. Or. Cascades
+IWFdw_OR,Fd,30,Simpson E. Or. Cascades
+IWFdw_OR,Pw,21,Simpson E. Or. Cascades
+MHRFmm_OR,Bm,14,Simpson E. Or. Cascades
+MHRFmm_OR,Pl,12,Simpson E. Or. Cascades
+MHRFmm_OR,Ps,16,Simpson E. Or. Cascades
+MHRFmm_OR,Pw,14,Simpson E. Or. Cascades
+MHRFmm_OR,Py,16,Simpson E. Or. Cascades
+IDFxx_WA,Py,22,Simpson E. Or. Cascades
+IDFxx_WA,Oa,16,Simpson E. Or. Cascades
+IDFxx_WA,Jw,16,Simpson E. Or. Cascades
+IDFxx_WA,Ps,18,Simpson E. Or. Cascades
+IDFxx_WA,Fd,28,Simpson E. Or. Cascades
+PPxk_OR,Py,19,Simpson E. Or. Cascades
+PPxk_OR,Oa,12,Simpson E. Or. Cascades
+PPxk_OR,Pl,14,Simpson E. Or. Cascades
+PPxk_OR,At,14,Simpson E. Or. Cascades
+Msxk_OR,Fd,27,Johnson Blue-Ochoco MTns
+Msxk_OR,Lw,21,Johnson Blue-Ochoco MTns
+Msxk_OR,Bl,21,Johnson Blue-Ochoco MTns
+Msxk_OR,Se,21,Johnson Blue-Ochoco MTns
+Msxk_OR,Pl,21,Johnson Blue-Ochoco MTns
+IGFmm_OR,Fd,25,Johnson Blue-Ochoco MTns
+IGFmm_OR,Lw,28,Johnson Blue-Ochoco MTns
+IGFmm_OR,Py,19,Johnson Blue-Ochoco MTns
+IGFmm_OR,Pw,21,Johnson Blue-Ochoco MTns
+IGFmm_OR,Bg,28,Johnson Blue-Ochoco MTns
+ESSFxw_OR,Fd,14,Johnson Blue-Ochoco MTns
+ESSFxw_OR,Lw,21,Johnson Blue-Ochoco MTns
+ESSFxw_OR,Pl,14,Johnson Blue-Ochoco MTns
+ESSFxw_OR,Se,21,Johnson Blue-Ochoco MTns
+ESSFxw_OR,Bl,21,Johnson Blue-Ochoco MTns
+GBDdw_UT,Fd,0,WHM - known limit
+CVGdm_CA,Fd,0,WHM - known limit
+OWun_CA,Fd,0,WHM - known limit
+BGwm_WA,Fd,0,WHM - known limit
+ESSFmc,Fd,0,WHM - known limit
+IMAun,Fd,0,WHM - known limit
