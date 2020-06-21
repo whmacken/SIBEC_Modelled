@@ -37,7 +37,7 @@ require (fitdistrplus)
 ```{r import tables, echo=FALSE, message = FALSE}
 allDat <- fread("D:/CommonTables/Climate_Data/ALLWNAv11_AllVars.csv", data.table = FALSE, stringsAsFactors = FALSE) ###Climate data 1961-90for representative points per BGC  with all variables
 allDat <- allDat[!(allDat$DD5 == -9999),]
-allDat <- allDat %>% dplyr::rename(., ID2 = BGC)
+allDat <- allDat %>% dplyr::rename(., ID2 = BGC) 
 CMDtemp <- allDat[,grep("CMD",colnames(allDat))]
 AllBGC <- unique(allDat$ID2)
 allDat$ID2 <- as.factor(allDat$ID2)
@@ -47,7 +47,7 @@ allDat <- droplevels(allDat)
 #temp2 <- allDat[,grep("PPT0", colnames(allDat))]
 sPPTtemp <- allDat[c("ID1", "ID2", "PPT05","PPT06","PPT07","PPT08","PPT09" )]
 sPPTtemp$Moist <- rowSums(sPPTtemp[,3:7] >90) #count of months with >90mm rain
-temp3 <- sPPTtemp %>% select(ID2,Moist) %>% group_by (ID2) %>% summarize (count= length(ID2), moistcount = length(ID2[Moist == 5]), ratio = moistcount/count)# %>% # %>% moistcount = nrow (ID2 [temp2$ID2 == 5])#filter(Moist == 5) %>% count(ID2, sort =TRUE) %>% 
+temp3 <- sPPTtemp %>% dplyr::select(ID2,Moist) %>% group_by (ID2) %>% summarize (count= length(ID2), moistcount = length(ID2[Moist == 5]), ratio = moistcount/count)# %>% # %>% moistcount = nrow (ID2 [temp2$ID2 == 5])#filter(Moist == 5) %>% count(ID2, sort =TRUE) %>% 
 #table(temp3)
 sPPTtemp$Moist <- ifelse(sPPTtemp$Moist > 4, 1, 0) # flag locations where all months are >90mm rain. If all months then always overcapacity zonal soils
                      # ifelse(temp2$Moist >3, 5.5,""))
@@ -65,7 +65,7 @@ allDat2$PPT.dorm <- allDat2$PPT_at + allDat2$PPT_wt
 # Moist <- aggregate(ID1 ~ ID2 + Moist, temp2, length) # count of number of sites in each BGC meeting moist criteria
 
 # ##--------BGCs requiring special adjustments for deep snowpack
-    BGC_Special <- fread("./inputs/BGC_Special.csv", data.table = FALSE)
+    BGC_Special <- fread("./inputsGit/BGC_Special.csv", data.table = FALSE)
     CMD <- full_join(CMD,BGC_Special, by.x = "ID2")
 
   ####To adjust in zones with prolonged snowpack remove CMD from early growing season months
@@ -108,19 +108,77 @@ The development of a seamless climate surface for British Columnbia with Climati
 
 ```{r box plot of climate variable by BGC, echo=FALSE, message = FALSE, fig.width=11,fig.height=50,fig.cap="\\label{fig:figs} Climate values by BGC"}
 require(forcats)
-p <- ggplot(allDat, aes(x = fct_reorder(ID2, Tmax07), y = Tmax07))+
+require(stringr)
+
+#allDat$ID2 <- as.character(allDat$ID2)
+coastDat <- allDat %>% dplyr::filter(str_detect(ID2, ("CWH|CDF|CMX|MH|MHRF|CVG|CRF|CMA|CWF|CCH")))#, "CMX", "MH", "MHRF", "CVG", "CRF")))
+interDat <- allDat %>% dplyr::filter(!str_detect(ID2, ("CWH|CDF|CMX|MH|MHRF|CVG|CRF|CMA|CWF|CCH")))#, "CMX", "MH", "MHRF", "CVG", "CRF")))
+pc <- ggplot(coastDat, aes(x = fct_reorder(ID2, DD5), y = DD5))+
   geom_boxplot() +
   #geom_point(shape = 21, fill = "red", size = 1)+
   #geom_jitter(width = 0) +
   coord_flip()+
-    ggtitle("DD5 range by BGC")+
+    ggtitle("DD5 range by Coastal BGC")+
   xlab ("BGC")+
   #scale_y_continuous("DD5", breaks=seq(0,8000,500))+
   theme_bw()
   #geom_text (aes(label= BGC), size = 1, hjust = -1, position = position_dodge(width=1) )#
 #ggsave("./outputs/CMD_ranges of Expert aSMR of Zonal.pdf", plot = p, dpi = "print", device = "pdf", width = 15, height = 15, units = "cm")
 #ggsave("./outputs/CMD_ranges.png", plot = p, dpi = "print", device = "png", width = 15, height = 15, units = "cm")
-plot(p)
+plot(pc)
+
+pi <- ggplot(interDat, aes(x = fct_reorder(ID2, DD5), y = DD5))+
+  geom_boxplot() +
+  #geom_point(shape = 21, fill = "red", size = 1)+
+  #geom_jitter(width = 0) +
+  coord_flip()+
+    ggtitle("DD5 range by Interior BGC")+
+  xlab ("BGC")+
+  #scale_y_continuous("DD5", breaks=seq(0,8000,500))+
+  theme_bw()
+  #geom_text (aes(label= BGC), size = 1, hjust = -1, position = position_dodge(width=1) )#
+#ggsave("./outputs/CMD_ranges of Expert aSMR of Zonal.pdf", plot = p, dpi = "print", device = "pdf", width = 15, height = 15, units = "cm")
+#ggsave("./outputs/CMD_ranges.png", plot = p, dpi = "print", device = "png", width = 15, height = 15, units = "cm")
+plot(pi)
+
+
+``` 
+
+
+```{r simple regression}
+require(forcats)
+require(stringr)
+
+#allDat$ID2 <- as.character(allDat$ID2)
+coastDat <- allDat %>% dplyr::filter(str_detect(ID2, ("CWH|CDF|CMX|MH|MHRF|CVG|CRF|CMA|CWF|CCH")))#, "CMX", "MH", "MHRF", "CVG", "CRF")))
+interDat <- allDat %>% dplyr::filter(!str_detect(ID2, ("CWH|CDF|CMX|MH|MHRF|CVG|CRF|CMA|CWF|CCH")))#, "CMX", "MH", "MHRF", "CVG", "CRF")))
+pc <- ggplot(coastDat, aes(x = fct_reorder(ID2, DD5), y = DD5))+
+  geom_boxplot() +
+  #geom_point(shape = 21, fill = "red", size = 1)+
+  #geom_jitter(width = 0) +
+  coord_flip()+
+    ggtitle("DD5 range by Coastal BGC")+
+  xlab ("BGC")+
+  #scale_y_continuous("DD5", breaks=seq(0,8000,500))+
+  theme_bw()
+  #geom_text (aes(label= BGC), size = 1, hjust = -1, position = position_dodge(width=1) )#
+#ggsave("./outputs/CMD_ranges of Expert aSMR of Zonal.pdf", plot = p, dpi = "print", device = "pdf", width = 15, height = 15, units = "cm")
+#ggsave("./outputs/CMD_ranges.png", plot = p, dpi = "print", device = "png", width = 15, height = 15, units = "cm")
+plot(pc)
+
+pi <- ggplot(interDat, aes(x = fct_reorder(ID2, DD5), y = DD18))+
+  geom_boxplot() +
+  #geom_point(shape = 21, fill = "red", size = 1)+
+  #geom_jitter(width = 0) +
+  coord_flip()+
+    ggtitle("DD5 range by Interior BGC")+
+  xlab ("BGC")+
+  #scale_y_continuous("DD5", breaks=seq(0,8000,500))+
+  theme_bw()
+  #geom_text (aes(label= BGC), size = 1, hjust = -1, position = position_dodge(width=1) )#
+#ggsave("./outputs/CMD_ranges of Expert aSMR of Zonal.pdf", plot = p, dpi = "print", device = "pdf", width = 15, height = 15, units = "cm")
+#ggsave("./outputs/CMD_ranges.png", plot = p, dpi = "print", device = "png", width = 15, height = 15, units = "cm")
+plot(pi)
 
 
 ``` 
