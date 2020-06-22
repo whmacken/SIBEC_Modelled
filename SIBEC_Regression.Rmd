@@ -86,9 +86,9 @@ rules <- fread("./inputsGit/aSMR_Rules_HalfStep_v11_09Dec2019.csv")
 ```
 
 ```{r clean data}
-Spp = "Fd"
+Spp = "Sx"
 
-sppAdj <- data.table(read.xlsx("./inputsGit/SI_percent_by_edagrid.xlsx",sheet = "Fd"))
+sppAdj <- data.table(read.xlsx("./inputsGit/SI_percent_by_edagrid.xlsx",sheet = Spp))
 sppAdj$aSMR <- 0:9
 sppAdj <- melt(sppAdj, id.vars = "aSMR", variable.name = "SNR")
 
