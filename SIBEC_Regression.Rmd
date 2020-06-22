@@ -66,6 +66,9 @@ cppFunction('NumericVector calcASMR(NumericVector rSMR,NumericVector CMD, DataFr
 
 ```{r importData}
 sibec <- fread("./inputsGit/SIBEC_2020_updatesof2013.csv")
+sibec <- sibec %>% distinct()
+write.csv("./inputsGit/SIBEC_2020_updatesof2013.csv", row.names = FALSE)
+
 sibec_add <- fread("./inputsGit/SIBEC_2020_Add.csv") ## additional SI Max values added
 sibec_add <- sibec_add %>% dplyr::select(-Source)
 sibec <- rbind(sibec, sibec_add)
@@ -73,11 +76,12 @@ sibec <- sibec[!is.na(MeanPlotSiteIndex),]
 MaxSppSI <-  fread("./inputsGit/MaxSppSI.csv") ## file with highest know SI values by species
 
 ##load and average climate data
-climDat0 <- fread("C:/Users/kirid/Sync/CCISS_data/CommonTables/WNA_4k_HexPts_BGC_Normal_1961_1990MSY.csv")
-#climDat0 <- fread("C:/Users/whmacken/Sync/CCISS_data/CommonTables/WNA_4k_HexPts_BGC_Normal_1961_1990MSY.csv")
+#climDat0 <- fread("C:/Users/kirid/Sync/CCISS_data/CommonTables/WNA_4k_HexPts_BGC_Normal_1961_1990MSY.csv")
+climDat0 <- fread("C:/Users/whmacken/Sync/CCISS_data/CommonTables/WNA_4k_HexPts_BGC_Normal_1961_1990MSY.csv")
 climDat <- climDat0[,lapply(.SD, mean), by = .(BGC), .SDcols = 174:252]
 
-eda <- fread("C:/Users/kirid/Sync/CCISS_data/CommonTables/Edatopic_v11_20.csv")
+#eda <- fread("C:/Users/kirid/Sync/CCISS_data/CommonTables/Edatopic_v11_20.csv")
+eda <- fread("C:/Users/whmacken/Sync/CCISS_data/CommonTables/Edatopic_v11_20.csv")
 eda <- eda[is.na(Special),.(BGC,SS_NoSpace,Edatopic)]
 eda[,`:=`(rSMR = as.numeric(substr(Edatopic,2,2)),SNR = substr(Edatopic,1,1))]
 eda <- unique(eda)
@@ -88,7 +92,7 @@ rules <- fread("./inputsGit/aSMR_Rules_HalfStep_v11_09Dec2019.csv")
 ```{r clean data}
 Spp = "Sx"
 
-sppAdj <- data.table(read.xlsx("./inputsGit/SI_percent_by_edagrid.xlsx",sheet = Spp))
+sppAdj <- data.table(read.xlsx("./inputsGit/SI_percent_by_edagrid.xlsx",sheet = "Fd"))
 sppAdj$aSMR <- 0:9
 sppAdj <- melt(sppAdj, id.vars = "aSMR", variable.name = "SNR")
 
@@ -206,17 +210,17 @@ PredictedSI_coast <- cbind(clim_coast, PredictedSI)
   geom_jitter(width = 0) +
   scale_y_continuous(limit = c(0, 45))+
      scale_x_continuous(limit = c(0, 5000))+
-    ggtitle("DD5 range by Coastal BGC")+
+    ggtitle("DD5 range by Interior BGC")+
   geom_text (aes(label= BGC), size = 2, hjust = -.1, position = position_dodge(width=1) )+
   #geom_abline(intercept = -11, slope = .042, color = "green")+
   #geom_abline(intercept = -1.86715, slope = .0263, color = "red")+
   geom_hline(yintercept= (SppMaxSI$MaxSI), linetype="dashed", color = "red")+
 geom_smooth(method = "loess")
 
-ggsave(paste0 ("./outputs/", Spp, "_interior_SIpotential_predicted.jpg"))
+#ggsave(paste0 ("./outputs/", Spp, "_interior_SIpotential_predicted.jpg"))
 
 #pc <- 
-  ggplot(PredictedSI_coast, aes(x = DD5, y = PredictedSI2))+
+  ggplot(PredictedSI_coast, aes(x = DD5, y = PredictedSI))+
   geom_point() +
   #geom_point(shape = 21, fill = "red", size = 1)+
   geom_jitter(width = 0) +
@@ -228,7 +232,7 @@ ggsave(paste0 ("./outputs/", Spp, "_interior_SIpotential_predicted.jpg"))
   #geom_abline(intercept = -1.86715, slope = .0263, color = "red")+
   geom_hline(yintercept= (SppMaxSI$MaxSI), linetype="dashed", color = "red")+
 geom_smooth(method = "loess")
-ggsave(paste0 ("./outputs/", Spp, "_coast_SIpotential_predicted.jpg"))
+#ggsave(paste0 ("./outputs/", Spp, "_coast_SIpotential_predicted.jpg"))
 
 ```
 
