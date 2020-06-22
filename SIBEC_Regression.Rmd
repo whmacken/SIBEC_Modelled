@@ -28,7 +28,11 @@ sibec_add <- sibec_add %>% dplyr::select(-Source)
 sibec <- rbind(sibec, sibec_add)
 MaxSppSI <-  fread("./inputsGit/MaxSppSI.csv") ## file with highest know SI values by species
 
+<<<<<<< HEAD
 Spp = "Fd"
+=======
+Spp = "Ba"
+>>>>>>> 177af2987667c42c32ce2b065053bb3c31774bb3
 SppMaxSI <- MaxSppSI[MaxSppSI$Sp %in% Spp,]
 sibec <- sibec[TreeSpp == Spp,]
 sibec[,BGC := gsub("/.*","",SS_NoSpace)]
@@ -51,11 +55,11 @@ climDat0 <- fread("C:/Users/whmacken/Sync/CCISS_data/CommonTables/WNA_4k_HexPts_
 climDat <- climDat0[,lapply(.SD, mean), by = .(BGC), .SDcols = 174:252]
 
 climSI <- left_join(simax, climDat) %>% dplyr::select(BGC, XSI, DD5, DD18, EXT) #%>% mutate(XSIadj = ifelse (DD5 >= 1100, XSI + ((DD5 - 1100) *.02), XSI))
-coastSI <- climSI %>% dplyr::filter(str_detect(BGC, ("CWH|CDF|CMX|MH|MHRF|CVG|CRF|CMA|CWF|CCH|IDFww")))#, "CMX", "MH", "MHRF", "CVG", "CRF")))
-interSI<- climSI %>% dplyr::filter(!str_detect(BGC, ("CWH|CDF|CMX|MH|MHRF|CVG|CRF|CMA|CWF|CCH|IDFww")))#, "CMX", "MH", "MHRF", "CVG", "CRF")))
+coastSI <- climSI %>% dplyr::filter(str_detect(BGC, ("CWH|CDF|CMX|MH|MHRF|CVG|CRF|CMA|CWF|CCH|IDFww|ESSFmk")))#, "CMX", "MH", "MHRF", "CVG", "CRF")))
+interSI<- climSI %>% dplyr::filter(!str_detect(BGC, ("CWH|CDF|CMX|MH|MHRF|CVG|CRF|CMA|CWF|CCH|IDFww|ESSFmk")))#, "CMX", "MH", "MHRF", "CVG", "CRF")))
 
-clim_coast <- climDat %>% dplyr::filter(str_detect(BGC, ("CWH|CDF|CMX|MH|MHRF|CVG|CRF|CMA|CWF|CCH|IDFww"))) %>% dplyr::select(BGC, DD5, DD18, EXT) 
-clim_inter <- climDat %>% dplyr::filter(!str_detect(BGC, ("CWH|CDF|CMX|MH|MHRF|CVG|CRF|CMA|CWF|CCH|IDFww"))) %>% dplyr::select(BGC, DD5, DD18, EXT) 
+clim_coast <- climDat %>% dplyr::filter(str_detect(BGC, ("CWH|CDF|CMX|MH|MHRF|CVG|CRF|CMA|CWF|CCH|IDFww|ESSFmk"))) %>% dplyr::select(BGC, DD5, DD18, EXT) 
+clim_inter <- climDat %>% dplyr::filter(!str_detect(BGC, ("CWH|CDF|CMX|MH|MHRF|CVG|CRF|CMA|CWF|CCH|IDFww|ESSFmk"))) %>% dplyr::select(BGC, DD5, DD18, EXT) 
 
 SImaxc <- SppMaxSI[SppMaxSI$cos_int == "c", ]
 pc <- ggplot(coastSI, aes(x = DD5, y = XSI))+
@@ -65,7 +69,7 @@ pc <- ggplot(coastSI, aes(x = DD5, y = XSI))+
   scale_y_continuous(limit = c(0, 45))+
      scale_x_continuous(limit = c(0, 5000))+
     ggtitle("DD5 range by Coastal BGC")+
-  geom_text (aes(label= BGC), size = 4, hjust = -.1, position = position_dodge(width=1) )+
+  geom_text (aes(label= BGC), size = 2, hjust = -.1, position = position_dodge(width=1) )+
   #geom_abline(intercept = -11, slope = .042, color = "green")+
   #geom_abline(intercept = -1.86715, slope = .0263, color = "red")+
   geom_hline(yintercept= (SppMaxSI$MaxSI), linetype="dashed", color = "red")+
@@ -95,7 +99,7 @@ pi <- ggplot(interSI, aes(x = DD5, y = XSI))+
   #geom_abline(intercept = -11, slope = .042, color = "green")+
   #geom_abline(intercept = -1.86715, slope = .0263, color = "red")+
   geom_hline(yintercept = (SImaxi$MaxSI), linetype="dashed", color = "red")+
-    geom_text (aes(label= BGC), size = 4, hjust = -.1, position = position_dodge(width=1) )+
+    geom_text (aes(label= BGC), size = 2, hjust = -.1, position = position_dodge(width=1) )+
 geom_smooth(method = "loess")
 #geom_smooth(method = "lm")
 
