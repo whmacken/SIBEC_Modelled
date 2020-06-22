@@ -28,7 +28,7 @@ sibec_add <- sibec_add %>% dplyr::select(-Source)
 sibec <- rbind(sibec, sibec_add)
 MaxSppSI <-  fread("./inputsGit/MaxSppSI.csv") ## file with highest know SI values by species
 
-Spp = "Ba"
+Spp = "Sx"
 SppMaxSI <- MaxSppSI[MaxSppSI$Sp %in% Spp,]
 sibec <- sibec[TreeSpp == Spp,]
 sibec[,BGC := gsub("/.*","",SS_NoSpace)]
@@ -44,6 +44,8 @@ simax <- simax %>% filter(!str_detect(simax$BGC, ("CDFmm|SBPSxc|IDFxm|ESSFmw|IDF
 
 ##-------Removed for Bg curves
 #simax <- simax %>% filter(!str_detect(simax$BGC, ("CDFmm|SBPSxc|IDFxm|ESSFmw|IDFdk4|ESSFxw_OR|IDFxh2|IDFdm2|IDFdm1|IDFxw|IDFxh1|IDFdk|SBSmw|SBSdw|ICHmk")))
+
+
 
 
 #climDat <- fread("C:/Users/kirid/Sync/CCISS_data/CommonTables/WNA_4k_HexPts_BGC_Normal_1961_1990MSY.csv")
