@@ -72,8 +72,25 @@ sibec <- rbind(sibec, sibec_add)
 sibec <- sibec[!is.na(MeanPlotSiteIndex),]
 MaxSppSI <-  fread("./inputsGit/MaxSppSI.csv") ## file with highest know SI values by species
 
+##load and average climate data
+climDat0 <- fread("C:/Users/kirid/Sync/CCISS_data/CommonTables/WNA_4k_HexPts_BGC_Normal_1961_1990MSY.csv")
+#climDat0 <- fread("C:/Users/whmacken/Sync/CCISS_data/CommonTables/WNA_4k_HexPts_BGC_Normal_1961_1990MSY.csv")
+climDat <- climDat0[,lapply(.SD, mean), by = .(BGC), .SDcols = 174:252]
 
+eda <- fread("C:/Users/kirid/Sync/CCISS_data/CommonTables/Edatopic_v11_20.csv")
+eda <- eda[is.na(Special),.(BGC,SS_NoSpace,Edatopic)]
+eda[,`:=`(rSMR = as.numeric(substr(Edatopic,2,2)),SNR = substr(Edatopic,1,1))]
+eda <- unique(eda)
+
+rules <- fread("./inputsGit/aSMR_Rules_HalfStep_v11_09Dec2019.csv")
+```
+
+```{r clean data}
 Spp = "Fd"
+
+sppAdj <- data.table(read.xlsx("./inputsGit/SI_percent_by_edagrid.xlsx",sheet = "Fd"))
+sppAdj$aSMR <- 0:9
+sppAdj <- melt(sppAdj, id.vars = "aSMR", variable.name = "SNR")
 
 SppMaxSI <- MaxSppSI[MaxSppSI$Sp %in% Spp,]
 sibec <- sibec[TreeSpp == Spp,]
@@ -83,29 +100,13 @@ sibec[,isMax := MeanPlotSiteIndex == max(MeanPlotSiteIndex), by = .(BGC)]
 simax <- sibec[(isMax),] 
 simax <- simax %>% dplyr::rename (XSI = MeanPlotSiteIndex) %>% unique()
 
-##load and average climate data
-climDat0 <- fread("C:/Users/kirid/Sync/CCISS_data/CommonTables/WNA_4k_HexPts_BGC_Normal_1961_1990MSY.csv")
-#climDat0 <- fread("C:/Users/whmacken/Sync/CCISS_data/CommonTables/WNA_4k_HexPts_BGC_Normal_1961_1990MSY.csv")
-climDat <- climDat0[,lapply(.SD, mean), by = .(BGC), .SDcols = 174:252]
-
-##check if max SI values are near max climatic potential
-
-eda <- fread("C:/Users/kirid/Sync/CCISS_data/CommonTables/Edatopic_v11_20.csv")
-eda <- eda[is.na(Special),.(BGC,SS_NoSpace,Edatopic)]
-eda[,`:=`(rSMR = as.numeric(substr(Edatopic,2,2)),SNR = substr(Edatopic,1,1))]
-eda <- unique(eda)
-
-rules <- fread("./inputsGit/aSMR_Rules_HalfStep_v11_09Dec2019.csv")
+##check if max SI values are near max climatic potential (final table is simaxAvg)
 simax2 <- eda[simax, on = "SS_NoSpace"]
 simax2 <- climDat[,.(BGC,CMD)][simax2, on = "BGC"]
 simax2 <- simax2[!is.na(CMD),]
 simax2[, CMDadj := calcCMD_vec(CMD,rSMR)]
 simax2[, aSMR := calcASMR(rSMR,CMDadj,rules)]
 simax2[, aSMR := round(aSMR, digits = 0)]
-
-sppAdj <- data.table(read.xlsx("./inputsGit/SI_percent_by_edagrid.xlsx",sheet = "Fd"))
-sppAdj$aSMR <- 0:9
-sppAdj <- melt(sppAdj, id.vars = "aSMR", variable.name = "SNR")
 
 simax2 <- sppAdj[simax2, on = c("aSMR","SNR")]
 simaxAvg <- simax2[,.(BGC,XSI,PropMax = mean(value)), by = .(SS_NoSpace)]
@@ -185,14 +186,12 @@ plot(pi)
 ```{r build loess and extrapolate}
 ## interior
 spp.lo <- loess(XSI ~ DD5, interSI, control = loess.control(surface = "direct"))
-#predict(spp.lo, data.frame(DD5 = seq(0, 3000, 100)), se = TRUE)
 PredictedSI <- predict(spp.lo, newdata = clim_inter , se = F)
 PredictedSI_int <- cbind(clim_inter, PredictedSI)
 #write.csv(PredictedSI_int, paste0("./outputs/", Spp, "_interior_SIpotential_predicted.csv"))
 
 ## coast
 spp.lo2 <- loess(XSI ~ DD5, coastSI, control = loess.control(surface = "direct"))
-#predict(spp.lo2, data.frame(DD5 = seq(0, 3000, 100)), se = TRUE)
 PredictedSI <- predict(spp.lo2, newdata = clim_coast , se = F)
 PredictedSI_coast <- cbind(clim_coast, PredictedSI)
 #write.csv(PredictedSI_coast, paste0("./outputs/", Spp, "_coast_SIpotential_predicted.csv"))
