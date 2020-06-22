@@ -91,7 +91,7 @@ simax <- simax %>% filter(!str_detect(simax$BGC, ("CDFmm|SBPSxc|IDFxm|ESSFmw|IDF
 #simax <- simax %>% filter(!str_detect(simax$BGC, ("CDFmm|SBPSxc|IDFxm|ESSFmw|IDFdk4|ESSFxw_OR|IDFxh2|IDFdm2|IDFdm1|IDFxw|IDFxh1|IDFdk|SBSmw|SBSdw|ICHmk")))
 
 
-climDat0 <- fread("C:/Users/kirid/Sync/CCISS_data/CommonTables/WNA_4k_HexPts_BGC_Normal_1961_1990MSY.csv")
+#climDat0 <- fread("C:/Users/kirid/Sync/CCISS_data/CommonTables/WNA_4k_HexPts_BGC_Normal_1961_1990MSY.csv")
 climDat0 <- fread("C:/Users/whmacken/Sync/CCISS_data/CommonTables/WNA_4k_HexPts_BGC_Normal_1961_1990MSY.csv")
 climDat <- climDat0[,lapply(.SD, mean), by = .(BGC), .SDcols = 174:252]
 
@@ -229,6 +229,8 @@ predictComb <- sppAdj[predictComb, on = c("aSMR","SNR")]
 predictComb[,PredictedSI := PredictedSI*value]
 predSIfinal <- predictComb[,.(BGC, SS_NoSpace, Edatopic, aSMR, PredictedSI)]
 ```
+
+
 vars <- names(climDat)[-1]
 #suit <- fread("C:/Users/kirid/Sync/CCISS_data/CommonTables/Feasibility_v11_21.csv")
 suit <- fread("C:/Users/whmacken/Sync/CCISS_data/CommonTables/Feasibility_v11_21.csv")
