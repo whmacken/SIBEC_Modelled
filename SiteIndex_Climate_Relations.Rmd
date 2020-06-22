@@ -134,8 +134,7 @@ pi <- ggplot(interDat, aes(x = fct_reorder(ID2, DD5), y = DD5))+
   coord_flip()+
     ggtitle("DD5 range by Interior BGC")+
   xlab ("BGC")+
-  #scale_y_continuous("DD5", breaks=seq(0,8000,500))+
-  theme_bw()
+     theme_bw()
   #geom_text (aes(label= BGC), size = 1, hjust = -1, position = position_dodge(width=1) )#
 #ggsave("./outputs/CMD_ranges of Expert aSMR of Zonal.pdf", plot = p, dpi = "print", device = "pdf", width = 15, height = 15, units = "cm")
 #ggsave("./outputs/CMD_ranges.png", plot = p, dpi = "print", device = "png", width = 15, height = 15, units = "cm")
