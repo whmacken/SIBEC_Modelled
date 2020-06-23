@@ -66,8 +66,8 @@ cppFunction('NumericVector calcASMR(NumericVector rSMR,NumericVector CMD, DataFr
 
 ```{r importData}
 sibec <- fread("./inputsGit/SIBEC_2020_updatesof2013.csv")
-sibec <- sibec %>% distinct()
-write.csv("./inputsGit/SIBEC_2020_updatesof2013.csv", row.names = FALSE)
+#sibec <- sibec %>% distinct()
+#write.csv(sibec, "./inputsGit/SIBEC_2020_updatesof2013.csv", row.names = FALSE)
 
 sibec_add <- fread("./inputsGit/SIBEC_2020_Add.csv") ## additional SI Max values added
 sibec_add <- sibec_add %>% dplyr::select(-Source)
@@ -90,7 +90,7 @@ rules <- fread("./inputsGit/aSMR_Rules_HalfStep_v11_09Dec2019.csv")
 ```
 
 ```{r clean data}
-Spp = "Sx"
+Spp = "Bl"
 
 sppAdj <- data.table(read.xlsx("./inputsGit/SI_percent_by_edagrid.xlsx",sheet = Spp))
 sppAdj$aSMR <- 0:9
