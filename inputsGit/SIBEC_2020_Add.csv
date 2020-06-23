@@ -82,7 +82,7 @@ IMAun,Pl,0,WHM - known limit
 MHdm_OR,Pl,12,Simpson E. Or. Cascades
 MHRFmm_OR,Pl,12,Simpson E. Or. Cascades
 ESSFxw_OR,Pl,14,Johnson Blue-Ochoco MTns
-PPxk_OR,Pl,14,Simpson E. Or. Cascades
+PPxk_OR,Pl,18,Simpson E. Or. Cascades - adjusted 
 CWHdm_OR,Pl,15,Simpson E. Or. Cascades
 CWHms_OR,Pl,18,Simpson E. Or. Cascades
 IWFdw_OR,Pl,19,Simpson E. Or. Cascades
@@ -103,7 +103,7 @@ PPxk_OR,Py,19,Simpson E. Or. Cascades
 IDFxx_WA,Py,22,Simpson E. Or. Cascades
 CWHdm_OR,Py,33,Simpson E. Or. Cascades
 IWFdw_OR,Py,35,Simpson E. Or. Cascades
-BAFAun,Sx,0,
+BAFAun,Sx,0,WHM - known limit
 IMAun,Sx,0,WHM - known limit
 IDFxx2,Sx,0,WHM - known limit
 IDFxh_WA,Sx,0,WHM - known limit
@@ -120,3 +120,8 @@ Msxk_OR,Sx,21,Johnson Blue-Ochoco MTns
 CWHdm_OR,Sx,22,Simpson E. Or. Cascades
 IWFdw_OR,Sx,24,Simpson E. Or. Cascades
 CWHms_OR,Sx,26,Simpson E. Or. Cascades
+BGxh3,Pl,0,WHM - known limit
+BGxh2,Pl,0,WHM - known limit
+BGxw1,Bl,0,WHM - known limit
+IGFmm_OR,Bl,0,WHM - known limit
+IWFdw_OR,Bl,0,WHM - known limit
