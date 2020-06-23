@@ -184,6 +184,23 @@ geom_smooth(method = "loess")
 #ggsave("./outputs/CMD_ranges.png", plot = p, dpi = "print", device = "png", width = 15, height = 15, units = "cm")
 plot(pi)
 
+#interSI2 <- interSI %>% dplyr::filter(!str_detect (BGC, "PPxh1|BGxh2|BGxh1"))
+pall <- ggplot(climSI, aes(x = DD5, y = XSI))+
+  geom_point() +
+  #geom_point(shape = 21, fill = "red", size = 1)+
+  geom_jitter(width = 0) +
+ # coord_flip()+
+    ggtitle("SI by DD5 All")+   xlab ("DD5")+
+   scale_x_continuous(limit = c(0, 3000))+
+  scale_y_continuous(limit = c(0, 45))+
+  #geom_segment(aes(x=350, y=0, xend=1100, yend = 28))+
+  #geom_abline(intercept = -11, slope = .042, color = "green")+
+  #geom_abline(intercept = -1.86715, slope = .0263, color = "red")+
+  geom_hline(yintercept = (SImaxi$MaxSI), linetype="dashed", color = "red")+
+    geom_text (aes(label= BGC), size = 2, hjust = -.1, position = position_dodge(width=1) )+
+geom_smooth(method = "loess")
+
+plot(pall)
 
 ```
 
@@ -199,6 +216,12 @@ spp.lo2 <- loess(XSI ~ DD5, coastSI, control = loess.control(surface = "direct")
 PredictedSI <- predict(spp.lo2, newdata = clim_coast , se = F)
 PredictedSI_coast <- cbind(clim_coast, PredictedSI)
 #write.csv(PredictedSI_coast, paste0("./outputs/", Spp, "_coast_SIpotential_predicted.csv"))
+## all
+
+spp.lo3 <- loess(XSI ~ DD5, climSI, control = loess.control(surface = "direct"))
+PredictedSI <- predict(spp.lo3, newdata = climDat , se = F)
+PredictedSI_all <- cbind(climDat, PredictedSI)
+
 
 ```
 
@@ -233,6 +256,20 @@ geom_smooth(method = "loess")
   geom_hline(yintercept= (SppMaxSI$MaxSI), linetype="dashed", color = "red")+
 geom_smooth(method = "loess")
 #ggsave(paste0 ("./outputs/", Spp, "_coast_SIpotential_predicted.jpg"))
+  
+  
+    ggplot(PredictedSI_all, aes(x = DD5, y = PredictedSI))+
+  geom_point() +
+  #geom_point(shape = 21, fill = "red", size = 1)+
+  geom_jitter(width = 0) +
+  scale_y_continuous(limit = c(0, 45))+
+     scale_x_continuous(limit = c(0, 5000))+
+    ggtitle("DD5 range all BGCs")+
+  geom_text (aes(label= BGC), size = 2, hjust = -.1, position = position_dodge(width=1) )+
+  #geom_abline(intercept = -11, slope = .042, color = "green")+
+  #geom_abline(intercept = -1.86715, slope = .0263, color = "red")+
+  geom_hline(yintercept= (SppMaxSI$MaxSI), linetype="dashed", color = "red")+
+geom_smooth(method = "loess")
 
 ```
 
