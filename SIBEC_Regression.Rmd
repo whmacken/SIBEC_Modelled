@@ -92,7 +92,7 @@ rules <- fread("./inputsGit/aSMR_Rules_HalfStep_v11_09Dec2019.csv")
 ```{r clean data}
 Spp = "Sx"
 
-sppAdj <- data.table(read.xlsx("./inputsGit/SI_percent_by_edagrid.xlsx",sheet = "Fd"))
+sppAdj <- data.table(read.xlsx("./inputsGit/SI_percent_by_edagrid.xlsx",sheet = Spp))
 sppAdj$aSMR <- 0:9
 sppAdj <- melt(sppAdj, id.vars = "aSMR", variable.name = "SNR")
 
@@ -105,16 +105,16 @@ simax <- sibec[(isMax),]
 simax <- simax %>% dplyr::rename (XSI = MeanPlotSiteIndex) %>% unique()
 
 ##check if max SI values are near max climatic potential (final table is simaxAvg)
-simax2 <- eda[simax, on = "SS_NoSpace"]
-simax2 <- climDat[,.(BGC,CMD)][simax2, on = "BGC"]
-simax2 <- simax2[!is.na(CMD),]
-simax2[, CMDadj := calcCMD_vec(CMD,rSMR)]
-simax2[, aSMR := calcASMR(rSMR,CMDadj,rules)]
-simax2[, aSMR := round(aSMR, digits = 0)]
-
-simax2 <- sppAdj[simax2, on = c("aSMR","SNR")]
-simaxAvg <- simax2[,.(BGC,XSI,PropMax = mean(value)), by = .(SS_NoSpace)]
-simaxAvg <- unique(simaxAvg)
+# simax2 <- eda[simax, on = "SS_NoSpace"]
+# simax2 <- climDat[,.(BGC,CMD)][simax2, on = "BGC"]
+# simax2 <- simax2[!is.na(CMD),]
+# simax2[, CMDadj := calcCMD_vec(CMD,rSMR)]
+# simax2[, aSMR := calcASMR(rSMR,CMDadj,rules)]
+# simax2[, aSMR := round(aSMR, digits = 0)]
+# 
+# simax2 <- sppAdj[simax2, on = c("aSMR","SNR")]
+# simaxAvg <- simax2[,.(BGC,XSI,PropMax = mean(value)), by = .(SS_NoSpace)]
+# simaxAvg <- unique(simaxAvg)
 
 ###----will need to remove or adjust the SI where the max is on suboptimal CMD sites (e.g. where species only occurs on warm, dry sites)
 
