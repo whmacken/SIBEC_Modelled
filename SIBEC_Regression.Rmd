@@ -293,13 +293,29 @@ SIbySS <- predSIfinal[,.(SIPred = mean(PredictedSI)), by = .(SS_NoSpace)] ##aver
 ```
 
 
+```{r climate space}
 
+mahDist <- function(x, type){
+  if(nrow(x) < 25 | any(colSums(x) == 0)){
+    return(0)
+  }else{
+    t1 <- mahalanobis(x,center = colMeans(x), cov = cov(x),inverted = F)
+    if(type == "mean"){
+      return(mean(t1))
+    }else{
+      return(quantile(t1, 0.9))
+    }
+  }
+ 
+}
 
+climDat0 <- fread("C:/Users/whmacken/Sync/CCISS_data/CommonTables/WNA_4k_HexPts_BGC_Normal_1961_1990MSY.csv")
 
+clim_test <- climDat0 %>% dplyr::select(BGC, PPT_sm, PPT_wt, CMD, Tmin_wt, DD5) %>% mutate (Tmin_wt = (Tmin_wt * 100))# dplyr::filter(ID2 == "IDFdk1") %>% droplevels()
+test <- clim_test[!is.na(PPT_wt),. (Dist= mahDist(.SD,type = "quantile")),
+                 by = .(BGC), .SDcols = c("CMD")] #,"PPT_sm","CMD", "DD5", "Tmin_wt""PPT_wt"
 
-
-
-
+```
 
 
 
