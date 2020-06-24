@@ -341,117 +341,7 @@ predictComb[,PredictedSI := PredictedSI*(as.numeric(value))]
 predSIfinal <- predictComb[,.(BGC, SS_NoSpace, Edatopic, aSMR, PredictedSI)] ##each edatopic position
 SIbySS <- predSIfinal[,.(SIPred = mean(PredictedSI)), by = .(SS_NoSpace)] ##averaged by site series
 
-write.csv(SIbySS, paste0("./outputs/", SppCurr, "_estimated_potential_SI.csv"))
-```
-
-
-```{r climate space}
-
-mahDist <- function(x, type){
-  if(nrow(x) < 25 | any(colSums(x) == 0)){
-    return(0)
-  }else{
-    t1 <- mahalanobis(x,center = colMeans(x), cov = cov(x),inverted = F)
-    if(type == "mean"){
-      return(mean(t1))
-    }else{
-      return(quantile(t1, 0.9))
-    }
-  }
- 
-}
-
-climDat0 <- fread("C:/Users/whmacken/Sync/CCISS_data/CommonTables/WNA_4k_HexPts_BGC_Normal_1961_1990MSY.csv")
-
-clim_test <- climDat0 %>% dplyr::select(BGC, PPT_sm, PPT_wt, CMD, Tmin_wt, DD5) %>% mutate (Tmin_wt = (Tmin_wt * 100))# dplyr::filter(ID2 == "IDFdk1") %>% droplevels()
-test <- clim_test[!is.na(PPT_wt),. (Dist= mahDist(.SD,type = "quantile")),
-                 by = .(BGC), .SDcols = c("CMD")] #,"PPT_sm","CMD", "DD5", "Tmin_wt""PPT_wt"
-
-```
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-vars <- names(climDat)[-1]
-#suit <- fread("C:/Users/kirid/Sync/CCISS_data/CommonTables/Feasibility_v11_21.csv")
-suit <- fread("C:/Users/whmacken/Sync/CCISS_data/CommonTables/Feasibility_v11_21.csv")
-suit <- suit[Spp == "Fd",.(BGC,SS_NoSpace,Spp,Feasible)]
-suit[,isMax := Feasible == min(Feasible), by = .(BGC)]
-suit2 <- suit[(isMax), head(.SD,1), by = .(BGC)]
-sibec <- merge(sibec, suit2, by = "BGC", all = T)
-#units <- fread("C:/Users/kirid/Sync/CCISS_data/CommonTables/All_BGCs_v11_21.csv")
-units <- fread("C:/Users/whmacken/Sync/CCISS_data/CommonTables/All_BGCs_v11_21.csv")
-BC.units <- units[DataSet == "BC",Map_Label]
-climDat <- climDat[BGC %in% BC.units,]
-treeClm <- sibec[climDat, on = "BGC"]
-
-minSI <- treeClm[MeanPlotSiteIndex < quantile(MeanPlotSiteIndex,0.03, na.rm = T),.(BGC,MeanPlotSiteIndex,DD5)]
-minVals <- data.table(x = c(mean(minSI$DD5), min(treeClm$DD5)), y = c(mean(minSI$MeanPlotSiteIndex),0))
-dd5Fit <- lm(y ~ x, data = minVals)
-coefs <- dd5Fit$coefficients
-treeClm[is.na(MeanPlotSiteIndex), MeanPlotSiteIndex := coefs[1]+coefs[2]*DD5]
-dat <- treeClm[,c("BGC","MeanPlotSiteIndex",..vars)]
-dat <- unique(dat)
-
-##now hotter units
-#climDat <- fread("C:/Users/kirid/Sync/CCISS_data/CommonTables/WNA_4k_HexPts_BGC_Normal_1961_1990MSY.csv")
-climDat <- climDat0[,lapply(.SD, mean), by = .(BGC), .SDcols = 174:252]
-#units <- fread("C:/Users/kirid/Sync/CCISS_data/CommonTables/All_BGCs_v11_21.csv")
-units <- fread("C:/Users/whmacken/Sync/CCISS_data/CommonTables/All_BGCs_v11_21.csv")
-US.units <- units[DataSet == "USA",Map_Label]
-climDat <- climDat[BGC %in% US.units,]
-suitClm <- suit[climDat, on = "BGC"]
-temp <- suitClm[,.(BGC,Feasible,DD5,DD18,DD18_sm,Eref,CMD)]
-suit.fit <- step(lm(Feasible ~1, data = temp[!is.na(Feasible)]), 
-     scope = list(lower = ~1, upper = ~ DD5*DD18*Eref*CMD), trace = 3)
-suitClm[CMD > quantile(CMD,0.95) & DD18 > quantile(DD18, 0.95), MeanPlotSiteIndex := 5]
-suitClm <- suitClm[!is.na(MeanPlotSiteIndex),c("BGC","MeanPlotSiteIndex",..vars)]
-dat <- rbind(dat, suitClm)
-
-climDat <- suit[climDat, on = "BGC"]
-treeClm <- climDat[sibec, on = "BGC"]
-treeClm <- treeClm[!is.na(treeClm$DD5),]
-datCoast <- treeClm %>% dplyr::filter(str_detect(BGC, ("CWH|CDF|CMX|MH|MHRF|CVG|CRF|CMA|CWF|CCH")))#, "CMX", "MH", "MHRF", "CVG", "CRF")))
-datInterior <- treeClm%>% dplyr::filter(!str_detect(BGC, ("CWH|CDF|CMX|MH|MHRF|CVG|CRF|CMA|CWF|CCH")))#, "CMX", "MH", "MHRF", "CVG", "CRF")))
-#datCoast <- treeClm[grep("^C.*",BGC),]
-#datInterior <- treeClm[!BGC %in% datCoast$BGC,]
-temp <- datInterior[,c("MeanPlotSiteIndex",..vars)]
-#temp <- datCoast[,c("MeanPlotSiteIndex",..vars)]
-
-rf <- randomForest(MeanPlotSiteIndex ~ ., data = temp, importance = T, proximity = T)
-imp <- importance(rf)
-treeClm[,eq1 := 2.801+0.0616*DD5-0.0202*DD_18-0.1536*Eref]
-# treeClm[,eq2 := DD5*0.022]
-# plot(MeanPlotSiteIndex ~ eq1, data = treeClm)
-# 
-
-modInt <- step(lm(MeanPlotSiteIndex ~1, data = dat), 
-     scope = list(lower = ~1, upper = ~ DD5*DD_18*Eref*CMD*PAS_wt), trace = 3)
-summary(modInt)
-plot(datInterior$MeanPlotSiteIndex,modInt$fitted.values)
-
-modCoast <- step(lm(MeanPlotSiteIndex ~1, data = datCoast), 
-     scope = list(lower = ~1, upper = ~ DD5*DD_18*Eref*CMD*PAS_wt), trace = 3)
-summary(modCoast)
-plot(datCoast$MeanPlotSiteIndex,modCoast$fitted.values)
-
-=======
->>>>>>> 0cfcab5b23754a7075e941a5a51923c44e3139ce
-
-SIbySS[SIPred < 0, SIPred := 0]
+#write.csv(SIbySS, paste0("./outputs/", SppCurr, "_estimated_potential_SI.csv"))
 ```
 
 ```{r update table}
@@ -484,5 +374,32 @@ dbWriteTable(con, "si_working", suit, row.names = FALSE, append = TRUE)
 dbDisconnect(con)
 
 ```
+
+
+```{r climate space}
+
+mahDist <- function(x, type){
+  if(nrow(x) < 25 | any(colSums(x) == 0)){
+    return(0)
+  }else{
+    t1 <- mahalanobis(x,center = colMeans(x), cov = cov(x),inverted = F)
+    if(type == "mean"){
+      return(mean(t1))
+    }else{
+      return(quantile(t1, 0.9))
+    }
+  }
+ 
+}
+
+climDat0 <- fread("C:/Users/whmacken/Sync/CCISS_data/CommonTables/WNA_4k_HexPts_BGC_Normal_1961_1990MSY.csv")
+
+clim_test <- climDat0 %>% dplyr::select(BGC, PPT_sm, PPT_wt, CMD, Tmin_wt, DD5) %>% mutate (Tmin_wt = (Tmin_wt * 100))# dplyr::filter(ID2 == "IDFdk1") %>% droplevels()
+test <- clim_test[!is.na(PPT_wt),. (Dist= mahDist(.SD,type = "quantile")),
+                 by = .(BGC), .SDcols = c("CMD")] #,"PPT_sm","CMD", "DD5", "Tmin_wt""PPT_wt"
+
+```
+
+
 
 
