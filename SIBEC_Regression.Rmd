@@ -82,11 +82,8 @@ addVars <- function(dat){
 month <- c("01", "02", "03", "04", "05", "06","07", "08", "09", "10", "11", "12")
 dat <- dat  %>% dplyr::select(-ends_with(month)) %>% #removes all monthly variables
   dplyr::select(-starts_with("Rad")) %>% ##remove other non-biological variables
-  dplyr::select(-starts_with("RH")) %>%
-  dplyr::select (-contains("DD_0")) %>%
-   dplyr::select  (-contains("DD18")) %>%
-   dplyr::select  (-contains("DD_18"))  %>%
-  dplyr::select( -PPT_sp, -FFP, -PAS_sm, -PPT_at, -PAS_at, - MAP, -TD, -MAT)
+  dplyr::select(-starts_with("RH"))
+
   return(dat)
 }
 
@@ -113,7 +110,7 @@ MaxSppSI <-  fread("./inputsGit/MaxSppSI.csv") ## file with highest know SI valu
 ##load and average climate data
 climDat0 <- fread(paste0(cloud_dir,"WNA_4k_HexPts_BGC_Normal_1961_1990MSY.csv"))
 climDat0 <- addVars(climDat0)
-climDat <- climDat0[,lapply(.SD, mean), by = .(BGC), .SDcols = 6:63] 
+climDat <- climDat0[,lapply(.SD, mean), by = .(BGC), .SDcols = 6:86] 
 
 climDat2 <-climDat %>% dplyr::select(BGC, CMD.total)
 
@@ -221,7 +218,7 @@ pi <- ggplot(interSI, aes(x = DD5, y = XSI))+
  # coord_flip()+
     ggtitle(paste0(Spp, " SI50 by DD5 in Interior BGCs"))+   xlab ("DD5")+
    scale_x_continuous(limit = c(0, 3000))+
-  scale_y_continuous(limit = c(0, 82))+
+  scale_y_continuous(limit = c(0, 45))+
   #geom_segment(aes(x=350, y=0, xend=1100, yend = 28))+
   #geom_abline(intercept = -11, slope = .042, color = "green")+
   #geom_abline(intercept = -1.86715, slope = .0263, color = "red")+
@@ -286,7 +283,7 @@ PredictedSI_all <- cbind(climDat, PredictedSI)
   geom_jitter(width = 0) +
   scale_y_continuous(limit = c(0, 45))+
      scale_x_continuous(limit = c(0, 5000))+
-    ggtitle(paste0(Spp, " climatic maximum SI50 Predicted  by DD5 in interior BGCs"))+
+    ggtitle(paste0(SppCurr, " climatic maximum SI50 Predicted  by DD5 in interior BGCs"))+
   geom_text (aes(label= BGC), size = 2, hjust = -.1, position = position_dodge(width=1) )+
   #geom_abline(intercept = -11, slope = .042, color = "green")+
   #geom_abline(intercept = -1.86715, slope = .0263, color = "red")+
@@ -302,7 +299,7 @@ geom_smooth(method = "loess")
   geom_jitter(width = 0) +
   scale_y_continuous(limit = c(0, 45))+
      scale_x_continuous(limit = c(0, 5000))+
-    ggtitle(paste0(Spp, " climatic maximum SI50 Predictedby DD5 in coastal BGCs"))+
+    ggtitle(paste0(SppCurr, " climatic maximum SI50 Predictedby DD5 in coastal BGCs"))+
   geom_text (aes(label= BGC), size = 2, hjust = -.1, position = position_dodge(width=1) )+
   #geom_abline(intercept = -11, slope = .042, color = "green")+
   #geom_abline(intercept = -1.86715, slope = .0263, color = "red")+
@@ -317,7 +314,7 @@ geom_smooth(method = "loess")
   geom_jitter(width = 0) +
   scale_y_continuous(limit = c(0, 45))+
      scale_x_continuous(limit = c(0, 5000))+
-    ggtitle(paste0(Spp, " climatic maximum SI50 Predictedby DD5 in all BGCs"))+
+    ggtitle(paste0(SppCurr, " climatic maximum SI50 Predictedby DD5 in all BGCs"))+
   geom_text (aes(label= BGC), size = 2, hjust = -.1, position = position_dodge(width=1) )+
   #geom_abline(intercept = -11, slope = .042, color = "green")+
   #geom_abline(intercept = -1.86715, slope = .0263, color = "red")+
@@ -344,7 +341,7 @@ predictComb[,PredictedSI := PredictedSI*(as.numeric(value))]
 predSIfinal <- predictComb[,.(BGC, SS_NoSpace, Edatopic, aSMR, PredictedSI)] ##each edatopic position
 SIbySS <- predSIfinal[,.(SIPred = mean(PredictedSI)), by = .(SS_NoSpace)] ##averaged by site series
 
-write.csv(SIbySS, paste0("./outputs/", Spp, "_estimated_potential_SI.csv"))
+write.csv(SIbySS, paste0("./outputs/", SppCurr, "_estimated_potential_SI.csv"))
 ```
 
 
