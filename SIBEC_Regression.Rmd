@@ -97,7 +97,7 @@ SppCurr = "Sx"
 
 sppAdj <- data.table(read.xlsx("./inputsGit/SI_percent_by_edagrid.xlsx",sheet = SppCurr))
 sppAdj$aSMR <- 0:9
-sppAdj <- melt(sppAdj, id.vars = "aSMR", variable.name = "SNR")
+sppAdj <- data.table::melt(sppAdj, id.vars = "aSMR", variable.name = "SNR")
 
 SppMaxSI <- MaxSppSI[MaxSppSI$Sp %in% SppCurr,]
 sibec <- sibec[TreeSpp == SppCurr,]
@@ -123,6 +123,7 @@ toRemove <- simaxAvg[PropMax < 0.6, SS_NoSpace]
 simax <- simax[!SS_NoSpace %in% toRemove,]
 # simax <- simaxAvg[,.(SS_NoSpace,PropMax)] [simax, on = "SS_NoSpace"]
 # simax[!is.na(PropMax),XSI := XSI*(1/PropMax)]
+
 ###----will need to remove or adjust the SI where the max is on suboptimal CMD sites (e.g. where species only occurs on warm, dry sites)
 
 ##-------Removed for Fd curves
