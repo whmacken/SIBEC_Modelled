@@ -64,25 +64,26 @@ cppFunction('NumericVector calcASMR(NumericVector rSMR,NumericVector CMD, DataFr
 }')
 
 addVars <- function(dat){
-  dat$PPT_MJ <- dat$PPT05 + dat$PPT06  # MaY/June precip
-  dat$PPT_JAS <- dat$PPT07 + dat$PPT08 + dat$PPT09  # July/Aug/Sept precip
-  dat$PPT.dormant <- dat$PPT_at + dat$PPT_wt  # for calculating spring deficit
-  dat$CMD.def <- 500 - (dat$PPT.dormant)  # start of growing season deficit original value was 400 but 500 seems better
-  dat$CMD.def[dat$CMD.def < 0] <- 0  #negative values set to zero = no deficit
-  dat$CMDMax <- dat$CMD07
-  dat$CMD.total <- dat$CMD.def + dat$CMD
-  dat$CMD.grow <- dat$CMD05 + dat$CMD06 +dat$CMD07 +dat$CMD08 +dat$CMD09
-  dat$DD5.grow <- dat$DD5_05 + dat$DD5_06 + dat$DD5_07 + dat$DD5_08 + dat$DD5_09
-  dat$CMDMax <- dat$CMD07 # add in so not removed below
-  dat$DDgood <- dat$DD5 - dat$DD18
-  dat$DDnew <- (dat$DD5_05 + dat$DD5_06 +dat$DD5_07  + dat$DD5_08)  - (dat$DD18_05 + dat$DD18_06 +dat$DD18_07 +dat$DD18_08)
-  dat$TmaxJuly <- dat$Tmax07
+  dat[,`:=`(PPT_MJ = PPT05+PPT06,
+            PPT_JAS = PPT07+PPT08+PPT09,
+            PPT.dormant = PPT_at+PPT_wt)]
+  dat[,`:=`(CMD.def = 500-PPT.dormant)]
+  dat[CMD.def < 0, CMD.def := 0]
+  dat[,`:=`(CMDMax = CMD07,
+            CMD.total = CMD.def +CMD,
+            CMD.grow = CMD05 + CMD06 +CMD07 +CMD08 +CMD09,
+            DD5.grow = DD5_05 + DD5_06 + DD5_07 + DD5_08 + DD5_09,
+            DDgood = DD5 - DD18,
+            DDnew = (DD5_05 + DD5_06 +DD5_07  + DD5_08)  - 
+              (DD18_05 + DD18_06 +DD18_07 +DD18_08),
+            TmaxJuly = Tmax07)]
 
 # remove some redundant variables considered undesireable
-month <- c("01", "02", "03", "04", "05", "06","07", "08", "09", "10", "11", "12")
-dat <- dat  %>% dplyr::select(-ends_with(month)) %>% #removes all monthly variables
-  dplyr::select(-starts_with("Rad")) %>% ##remove other non-biological variables
-  dplyr::select(-starts_with("RH"))
+  nms <- as.character(names(dat))
+  toRemove <- c("01", "02", "03", "04", "05", "06","07", "08", "09", "10", "11", "12","Rad","RH")
+  nms <- nms[grep(paste(toRemove,collapse = "|"),nms)]
+  dat[,(nms) := NULL]
+  dat <- dat[CMD != -9999]
 
   return(dat)
 }
@@ -157,14 +158,14 @@ simax <- simax[!SS_NoSpace %in% toRemove,]
 ###----will need to remove or adjust the SI where the max is on suboptimal CMD sites (e.g. where species only occurs on warm, dry sites)
 
 ##-------Removed values of BGCs with issues
-if(Spp == "Fd"){
+if(SppCurr == "Fd"){
 simax <- simax %>%  filter(!str_detect(simax$BGC, ("CDFmm|SBPSxc|IDFxm|ESSFmw|IDFdk4|ESSFxw_OR|IDFxh2|IDFdm2|IDFdm1|IDFxw|IDFxh1|IDFdk|SBSmw|SBSdw|ICHmk")))
 }#,
-if(Spp == "Pl"){
+if(SppCurr == "Pl"){
 simax <- simax %>%  filter(!str_detect(simax$BGC, ("BWBS|IDFmw|IDFxm|ESSFxw|IDFdk")))
 }
 
-if(Spp == "Sx"){
+if(SppCurr == "Sx"){
 simax <- simax %>%  filter(!str_detect(simax$BGC, ("BWBS|IDFdw|IDFdk|SBPS|ESSFdc")))
 }
 ##-------Removed for Bg curves
@@ -341,117 +342,7 @@ predictComb[,PredictedSI := PredictedSI*(as.numeric(value))]
 predSIfinal <- predictComb[,.(BGC, SS_NoSpace, Edatopic, aSMR, PredictedSI)] ##each edatopic position
 SIbySS <- predSIfinal[,.(SIPred = mean(PredictedSI)), by = .(SS_NoSpace)] ##averaged by site series
 
-write.csv(SIbySS, paste0("./outputs/", SppCurr, "_estimated_potential_SI.csv"))
-```
-
-
-```{r climate space}
-
-mahDist <- function(x, type){
-  if(nrow(x) < 25 | any(colSums(x) == 0)){
-    return(0)
-  }else{
-    t1 <- mahalanobis(x,center = colMeans(x), cov = cov(x),inverted = F)
-    if(type == "mean"){
-      return(mean(t1))
-    }else{
-      return(quantile(t1, 0.9))
-    }
-  }
- 
-}
-
-climDat0 <- fread("C:/Users/whmacken/Sync/CCISS_data/CommonTables/WNA_4k_HexPts_BGC_Normal_1961_1990MSY.csv")
-
-clim_test <- climDat0 %>% dplyr::select(BGC, PPT_sm, PPT_wt, CMD, Tmin_wt, DD5) %>% mutate (Tmin_wt = (Tmin_wt * 100))# dplyr::filter(ID2 == "IDFdk1") %>% droplevels()
-test <- clim_test[!is.na(PPT_wt),. (Dist= mahDist(.SD,type = "quantile")),
-                 by = .(BGC), .SDcols = c("CMD")] #,"PPT_sm","CMD", "DD5", "Tmin_wt""PPT_wt"
-
-```
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-vars <- names(climDat)[-1]
-#suit <- fread("C:/Users/kirid/Sync/CCISS_data/CommonTables/Feasibility_v11_21.csv")
-suit <- fread("C:/Users/whmacken/Sync/CCISS_data/CommonTables/Feasibility_v11_21.csv")
-suit <- suit[Spp == "Fd",.(BGC,SS_NoSpace,Spp,Feasible)]
-suit[,isMax := Feasible == min(Feasible), by = .(BGC)]
-suit2 <- suit[(isMax), head(.SD,1), by = .(BGC)]
-sibec <- merge(sibec, suit2, by = "BGC", all = T)
-#units <- fread("C:/Users/kirid/Sync/CCISS_data/CommonTables/All_BGCs_v11_21.csv")
-units <- fread("C:/Users/whmacken/Sync/CCISS_data/CommonTables/All_BGCs_v11_21.csv")
-BC.units <- units[DataSet == "BC",Map_Label]
-climDat <- climDat[BGC %in% BC.units,]
-treeClm <- sibec[climDat, on = "BGC"]
-
-minSI <- treeClm[MeanPlotSiteIndex < quantile(MeanPlotSiteIndex,0.03, na.rm = T),.(BGC,MeanPlotSiteIndex,DD5)]
-minVals <- data.table(x = c(mean(minSI$DD5), min(treeClm$DD5)), y = c(mean(minSI$MeanPlotSiteIndex),0))
-dd5Fit <- lm(y ~ x, data = minVals)
-coefs <- dd5Fit$coefficients
-treeClm[is.na(MeanPlotSiteIndex), MeanPlotSiteIndex := coefs[1]+coefs[2]*DD5]
-dat <- treeClm[,c("BGC","MeanPlotSiteIndex",..vars)]
-dat <- unique(dat)
-
-##now hotter units
-#climDat <- fread("C:/Users/kirid/Sync/CCISS_data/CommonTables/WNA_4k_HexPts_BGC_Normal_1961_1990MSY.csv")
-climDat <- climDat0[,lapply(.SD, mean), by = .(BGC), .SDcols = 174:252]
-#units <- fread("C:/Users/kirid/Sync/CCISS_data/CommonTables/All_BGCs_v11_21.csv")
-units <- fread("C:/Users/whmacken/Sync/CCISS_data/CommonTables/All_BGCs_v11_21.csv")
-US.units <- units[DataSet == "USA",Map_Label]
-climDat <- climDat[BGC %in% US.units,]
-suitClm <- suit[climDat, on = "BGC"]
-temp <- suitClm[,.(BGC,Feasible,DD5,DD18,DD18_sm,Eref,CMD)]
-suit.fit <- step(lm(Feasible ~1, data = temp[!is.na(Feasible)]), 
-     scope = list(lower = ~1, upper = ~ DD5*DD18*Eref*CMD), trace = 3)
-suitClm[CMD > quantile(CMD,0.95) & DD18 > quantile(DD18, 0.95), MeanPlotSiteIndex := 5]
-suitClm <- suitClm[!is.na(MeanPlotSiteIndex),c("BGC","MeanPlotSiteIndex",..vars)]
-dat <- rbind(dat, suitClm)
-
-climDat <- suit[climDat, on = "BGC"]
-treeClm <- climDat[sibec, on = "BGC"]
-treeClm <- treeClm[!is.na(treeClm$DD5),]
-datCoast <- treeClm %>% dplyr::filter(str_detect(BGC, ("CWH|CDF|CMX|MH|MHRF|CVG|CRF|CMA|CWF|CCH")))#, "CMX", "MH", "MHRF", "CVG", "CRF")))
-datInterior <- treeClm%>% dplyr::filter(!str_detect(BGC, ("CWH|CDF|CMX|MH|MHRF|CVG|CRF|CMA|CWF|CCH")))#, "CMX", "MH", "MHRF", "CVG", "CRF")))
-#datCoast <- treeClm[grep("^C.*",BGC),]
-#datInterior <- treeClm[!BGC %in% datCoast$BGC,]
-temp <- datInterior[,c("MeanPlotSiteIndex",..vars)]
-#temp <- datCoast[,c("MeanPlotSiteIndex",..vars)]
-
-rf <- randomForest(MeanPlotSiteIndex ~ ., data = temp, importance = T, proximity = T)
-imp <- importance(rf)
-treeClm[,eq1 := 2.801+0.0616*DD5-0.0202*DD_18-0.1536*Eref]
-# treeClm[,eq2 := DD5*0.022]
-# plot(MeanPlotSiteIndex ~ eq1, data = treeClm)
-# 
-
-modInt <- step(lm(MeanPlotSiteIndex ~1, data = dat), 
-     scope = list(lower = ~1, upper = ~ DD5*DD_18*Eref*CMD*PAS_wt), trace = 3)
-summary(modInt)
-plot(datInterior$MeanPlotSiteIndex,modInt$fitted.values)
-
-modCoast <- step(lm(MeanPlotSiteIndex ~1, data = datCoast), 
-     scope = list(lower = ~1, upper = ~ DD5*DD_18*Eref*CMD*PAS_wt), trace = 3)
-summary(modCoast)
-plot(datCoast$MeanPlotSiteIndex,modCoast$fitted.values)
-
-=======
->>>>>>> 0cfcab5b23754a7075e941a5a51923c44e3139ce
-
-SIbySS[SIPred < 0, SIPred := 0]
+#write.csv(SIbySS, paste0("./outputs/", SppCurr, "_estimated_potential_SI.csv"))
 ```
 
 ```{r update table}
@@ -484,5 +375,32 @@ dbWriteTable(con, "si_working", suit, row.names = FALSE, append = TRUE)
 dbDisconnect(con)
 
 ```
+
+
+```{r climate space}
+
+mahDist <- function(x, type){
+  if(nrow(x) < 25 | any(colSums(x) == 0)){
+    return(0)
+  }else{
+    t1 <- mahalanobis(x,center = colMeans(x), cov = cov(x),inverted = F)
+    if(type == "mean"){
+      return(mean(t1))
+    }else{
+      return(quantile(t1, 0.9))
+    }
+  }
+ 
+}
+
+climDat0 <- fread("C:/Users/whmacken/Sync/CCISS_data/CommonTables/WNA_4k_HexPts_BGC_Normal_1961_1990MSY.csv")
+
+clim_test <- climDat0 %>% dplyr::select(BGC, PPT_sm, PPT_wt, CMD, Tmin_wt, DD5) %>% mutate (Tmin_wt = (Tmin_wt * 100))# dplyr::filter(ID2 == "IDFdk1") %>% droplevels()
+test <- clim_test[!is.na(PPT_wt),. (Dist= mahDist(.SD,type = "quantile")),
+                 by = .(BGC), .SDcols = c("CMD")] #,"PPT_sm","CMD", "DD5", "Tmin_wt""PPT_wt"
+
+```
+
+
 
 
