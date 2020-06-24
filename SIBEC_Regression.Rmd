@@ -340,19 +340,20 @@ predictComb[, aSMR := round(aSMR, digits = 0)]
 predictComb <- sppAdj[predictComb, on = c("aSMR","SNR")]
 predictComb[,PredictedSI := PredictedSI*(as.numeric(value))]
 predSIfinal <- predictComb[,.(BGC, SS_NoSpace, Edatopic, aSMR, PredictedSI)] ##each edatopic position
-SIbySS <- predSIfinal[,.(SIPred = mean(PredictedSI)), by = .(SS_NoSpace)] ##averaged by site series
+SIbySS <- predSIfinal[,.(SIPred = mean(PredictedSI), aSMRx = mean(aSMR)), by = .(SS_NoSpace)] ##averaged by site series
 
 #write.csv(SIbySS, paste0("./outputs/", SppCurr, "_estimated_potential_SI.csv"))
 ```
 
 ```{r update table}
 suit <- fread(paste0(cloud_dir,"Feasibility_v11_21.csv"))
-suit <- suit[Spp  == SppCurr,.(BGC,SS_NoSpace,Spp,Feasible)]
+suit <- suit[Spp  == SppCurr,.(BGC,SS_NoSpace,Spp,Feasible, Restrict_type)]
 suit <- SIbySS[suit, on = "SS_NoSpace"]
 temp <- sibec[,.(SS_NoSpace,SIBEC2013 = MeanPlotSiteIndex)]
 suit <- temp[suit, on = "SS_NoSpace"]
-suit <- suit[,.(BGC,SS_NoSpace,Spp,Feasible,SIBEC2013,SIPred)]
-
+suit <- suit[,.(BGC,SS_NoSpace,Spp,Feasible,SIBEC2013,SIPred, aSMRx)] %>% mutate(SIdiff == )
+write.csv(suit, paste0("./outputs/", SppCurr, "_estimated_potential_SI.csv"))
+suit2 <- suit %>% dplyr::select(-aSMRx)
 library(RPostgreSQL)
 dbSafeNames = function(names) {
   names = gsub('[^a-z0-9]+','_',tolower(names))
@@ -361,17 +362,17 @@ dbSafeNames = function(names) {
   names
 }
 
-colnames(suit) <- dbSafeNames(colnames(suit))
+colnames(suit2) <- dbSafeNames(colnames(suit2))
 drv <- dbDriver("PostgreSQL")
-con <- dbConnect(drv, user = "postgres", password = "Kiriliny41", host = "smithersresearch.ca", 
+# con <- dbConnect(drv, user = "postgres", password = "Kiriliny41", host = "smithersresearch.ca", 
+#                  port = 5432, dbname = "common_tables")
+# 
+# ##if in Will's house, use this one
+con <- dbConnect(drv, user = "postgres", password = "Kiriliny41", host = "FLNRServer",
                  port = 5432, dbname = "common_tables")
 
-##if in Will's house, use this one
-# con <- dbConnect(drv, user = "postgres", password = "Kiriliny41", host = "FLNRServer", 
-#                  port = 5432, dbname = "common_tables")
-
 ##si_working <- dbGetQuery(con, "SELECT * FROM si_working")
-dbWriteTable(con, "si_working", suit, row.names = FALSE, append = TRUE)
+dbWriteTable(con, "si_working", suit2, row.names = FALSE, append = TRUE)
 dbDisconnect(con)
 
 ```
