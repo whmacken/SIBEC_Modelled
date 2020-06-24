@@ -65,14 +65,14 @@ cppFunction('NumericVector calcASMR(NumericVector rSMR,NumericVector CMD, DataFr
 ```
 
 ```{r importData}
-sibec <- fread("./inputsGit/SIBEC_2020_updatesof2013.csv")
+sibec0 <- fread("./inputsGit/SIBEC_2020_updatesof2013.csv")
 #sibec <- sibec %>% distinct()
 #write.csv(sibec, "./inputsGit/SIBEC_2020_updatesof2013.csv", row.names = FALSE)
 
 sibec_add <- fread("./inputsGit/SIBEC_2020_Add.csv") ## additional SI Max values added
 sibec_add <- sibec_add %>% dplyr::select(-Source)
-sibec <- rbind(sibec, sibec_add)
-sibec <- sibec[!is.na(MeanPlotSiteIndex),]
+sibec0 <- rbind(sibec0, sibec_add)
+sibec0 <- sibec0[!is.na(MeanPlotSiteIndex),]
 MaxSppSI <-  fread("./inputsGit/MaxSppSI.csv") ## file with highest know SI values by species
 
 ##load and average climate data
@@ -90,8 +90,8 @@ rules <- fread("./inputsGit/aSMR_Rules_HalfStep_v11_09Dec2019.csv")
 ```
 
 ```{r clean data}
-Spp = "Lw"
-
+Spp = "Hw"
+sibec <- sibec0
 sppAdj <- data.table(read.xlsx("./inputsGit/SI_percent_by_edagrid.xlsx",sheet = Spp))
 sppAdj$aSMR <- 0:9
 sppAdj <- data.table::melt(sppAdj, id.vars = "aSMR", variable.name = "SNR")
@@ -113,20 +113,30 @@ simax2[, aSMR := calcASMR(rSMR,CMDadj,rules)]
 simax2[, aSMR := round(aSMR, digits = 0)]
 
 simax2 <- sppAdj[simax2, on = c("aSMR","SNR")]
-simaxAvg <- simax2[,.(BGC,XSI,PropMax = mean(value)), by = .(SS_NoSpace)]
+simaxAvg <- simax2[,.(BGC,XSI,PropMax = mean(as.numeric(value))), by = .(SS_NoSpace)]
 simaxAvg <- unique(simaxAvg)
 
 ###----will need to remove or adjust the SI where the max is on suboptimal CMD sites (e.g. where species only occurs on warm, dry sites)
 
-##-------Removed for Fd curves
-simax <- simax %>% filter(!str_detect(simax$BGC, ("CDFmm|SBPSxc|IDFxm|ESSFmw|IDFdk4|ESSFxw_OR|IDFxh2|IDFdm2|IDFdm1|IDFxw|IDFxh1|IDFdk|SBSmw|SBSdw|ICHmk")))
+##-------Removed values of BGCs with issues
+if(Spp == "Fd"){
+simax <- simax %>%  filter(!str_detect(simax$BGC, ("CDFmm|SBPSxc|IDFxm|ESSFmw|IDFdk4|ESSFxw_OR|IDFxh2|IDFdm2|IDFdm1|IDFxw|IDFxh1|IDFdk|SBSmw|SBSdw|ICHmk")))
+}#,
+if(Spp == "Pl"){
+simax <- simax %>%  filter(!str_detect(simax$BGC, ("BWBS|IDFmw|IDFxm|ESSFxw|IDFdk")))
+}
 
+if(Spp == "Sx"){
+simax <- simax %>%  filter(!str_detect(simax$BGC, ("BWBS|IDFdw|IDFdk|SBPS|ESSFdc")))
+}
 ##-------Removed for Bg curves
 #simax <- simax %>% filter(!str_detect(simax$BGC, ("CDFmm|SBPSxc|IDFxm|ESSFmw|IDFdk4|ESSFxw_OR|IDFxh2|IDFdm2|IDFdm1|IDFxw|IDFxh1|IDFdk|SBSmw|SBSdw|ICHmk")))
 
 climSI <- left_join(simax, climDat) %>% dplyr::select(BGC, XSI, DD5, DD18, EXT) #%>% mutate(XSIadj = ifelse (DD5 >= 1100, XSI + ((DD5 - 1100) *.02), XSI))
-coastSI <- climSI %>% dplyr::filter(str_detect(BGC, ("CWH|CDF|CMX|MH|MHRF|CVG|CRF|CMA|CWF|CCH|IDFww|ESSFmk")))#, "CMX", "MH", "MHRF", "CVG", "CRF")))
-interSI<- climSI %>% dplyr::filter(!str_detect(BGC, ("CWH|CDF|CMX|MH|MHRF|CVG|CRF|CMA|CWF|CCH|IDFww|ESSFmk")))#, "CMX", "MH", "MHRF", "CVG", "CRF")))
+coastSI <- climSI %>% dplyr::filter(str_detect(BGC, ("CWH|CDF|CMX|MH|MHRF|CVG|CRF|CMA|CWF|CCH|IDFww|ESSFmk"))) %>% 
+  dplyr::filter(!XSI == 28, !XSI == 21,!XSI == 15 ,!XSI == 24)#, "CMX", "MH", "MHRF", "CVG", "CRF")))  #, "CMX", "MH", "MHRF", "CVG", "CRF")))
+interSI<- climSI %>% dplyr::filter(!str_detect(BGC, ("CWH|CDF|CMX|MH|MHRF|CVG|CRF|CMA|CWF|CCH|IDFww|ESSFmk"))) %>% 
+  dplyr::filter(!XSI == 18, !XSI == 21,!XSI == 15 ,!XSI == 24)#, "CMX", "MH", "MHRF", "CVG", "CRF")))
 
 clim_coast <- climDat %>% dplyr::filter(str_detect(BGC, ("CWH|CDF|CMX|MH|MHRF|CVG|CRF|CMA|CWF|CCH|IDFww|ESSFmk"))) %>% dplyr::select(BGC, DD5, DD18, EXT) 
 clim_inter <- climDat %>% dplyr::filter(!str_detect(BGC, ("CWH|CDF|CMX|MH|MHRF|CVG|CRF|CMA|CWF|CCH|IDFww|ESSFmk"))) %>% dplyr::select(BGC, DD5, DD18, EXT) 
@@ -142,7 +152,7 @@ pc <- ggplot(coastSI, aes(x = DD5, y = XSI))+
   geom_jitter(width = 0) +
   scale_y_continuous(limit = c(0, 45))+
      scale_x_continuous(limit = c(0, 5000))+
-    ggtitle("DD5 range by Coastal BGC")+
+    ggtitle(paste0(Spp, " SI50 by DD5 in Coastal BGCs"))+
   geom_text (aes(label= BGC), size = 2, hjust = -.1, position = position_dodge(width=1) )+
   #geom_abline(intercept = -11, slope = .042, color = "green")+
   #geom_abline(intercept = -1.86715, slope = .0263, color = "red")+
@@ -166,7 +176,7 @@ pi <- ggplot(interSI, aes(x = DD5, y = XSI))+
   #geom_point(shape = 21, fill = "red", size = 1)+
   geom_jitter(width = 0) +
  # coord_flip()+
-    ggtitle("SI by DD5 Interior")+   xlab ("DD5")+
+    ggtitle(paste0(Spp, " SI50 by DD5 in Interior BGCs"))+   xlab ("DD5")+
    scale_x_continuous(limit = c(0, 3000))+
   scale_y_continuous(limit = c(0, 45))+
   #geom_segment(aes(x=350, y=0, xend=1100, yend = 28))+
@@ -190,7 +200,7 @@ pall <- ggplot(climSI, aes(x = DD5, y = XSI))+
   #geom_point(shape = 21, fill = "red", size = 1)+
   geom_jitter(width = 0) +
  # coord_flip()+
-    ggtitle("SI by DD5 All")+   xlab ("DD5")+
+    ggtitle(paste0(Spp, " SI50 by DD5 in all BGCs"))+   xlab ("DD5")+
    scale_x_continuous(limit = c(0, 3000))+
   scale_y_continuous(limit = c(0, 45))+
   #geom_segment(aes(x=350, y=0, xend=1100, yend = 28))+
@@ -233,7 +243,7 @@ PredictedSI_all <- cbind(climDat, PredictedSI)
   geom_jitter(width = 0) +
   scale_y_continuous(limit = c(0, 45))+
      scale_x_continuous(limit = c(0, 5000))+
-    ggtitle("DD5 range by Interior BGC")+
+    ggtitle(paste0(Spp, " climatic maximum SI50 Predicted  by DD5 in interior BGCs"))+
   geom_text (aes(label= BGC), size = 2, hjust = -.1, position = position_dodge(width=1) )+
   #geom_abline(intercept = -11, slope = .042, color = "green")+
   #geom_abline(intercept = -1.86715, slope = .0263, color = "red")+
@@ -249,7 +259,7 @@ geom_smooth(method = "loess")
   geom_jitter(width = 0) +
   scale_y_continuous(limit = c(0, 45))+
      scale_x_continuous(limit = c(0, 5000))+
-    ggtitle("DD5 range by Coastal BGC")+
+    ggtitle(paste0(Spp, " climatic maximum SI50 Predictedby DD5 in coastal BGCs"))+
   geom_text (aes(label= BGC), size = 2, hjust = -.1, position = position_dodge(width=1) )+
   #geom_abline(intercept = -11, slope = .042, color = "green")+
   #geom_abline(intercept = -1.86715, slope = .0263, color = "red")+
@@ -264,7 +274,7 @@ geom_smooth(method = "loess")
   geom_jitter(width = 0) +
   scale_y_continuous(limit = c(0, 45))+
      scale_x_continuous(limit = c(0, 5000))+
-    ggtitle("DD5 range all BGCs")+
+    ggtitle(paste0(Spp, " climatic maximum SI50 Predictedby DD5 in all BGCs"))+
   geom_text (aes(label= BGC), size = 2, hjust = -.1, position = position_dodge(width=1) )+
   #geom_abline(intercept = -11, slope = .042, color = "green")+
   #geom_abline(intercept = -1.86715, slope = .0263, color = "red")+
@@ -290,6 +300,7 @@ predictComb <- sppAdj[predictComb, on = c("aSMR","SNR")]
 predictComb[,PredictedSI := PredictedSI*value]
 predSIfinal <- predictComb[,.(BGC, SS_NoSpace, Edatopic, aSMR, PredictedSI)] ##each edatopic position
 SIbySS <- predSIfinal[,.(SIPred = mean(PredictedSI)), by = .(SS_NoSpace)] ##averaged by site series
+write.csv(SIbySS, paste0("./outputs/", Spp, "_estimated_potential_SI.csv"))
 ```
 
 
