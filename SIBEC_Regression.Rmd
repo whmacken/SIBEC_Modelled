@@ -370,8 +370,15 @@ con <- dbConnect(drv, user = "postgres", password = "Kiriliny41", host = "smithe
 # con <- dbConnect(drv, user = "postgres", password = "Kiriliny41", host = "FLNRServer", 
 #                  port = 5432, dbname = "common_tables")
 
-##si_working <- dbGetQuery(con, "SELECT * FROM si_working")
+##Use dbGetQuery to return the result of a query as a data table
+##Can also use dbReadTable(con, "si_working) to read entire table
+##si_working <- dbGetQuery(con, "SELECT * FROM si_working WHERE sipred > 35")
+##You can use dbExecute to updat a table, e.g.could use this to set the column sibec2013 to 0 where it's na
+##dbExecute(con, "UPDATE si_working SET sibec2013 = 0 WHERE sibec2013 IS NULL")
+##use this to append to a table
 dbWriteTable(con, "si_working", suit, row.names = FALSE, append = TRUE)
+###if you want to rewrite the table, do this
+##dbWriteTable(con, "si_working", suit, row.names = FALSE, overwrite = TRUE)
 dbDisconnect(con)
 
 ```
