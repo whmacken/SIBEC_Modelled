@@ -53,7 +53,7 @@ cppFunction('NumericVector calcASMR(NumericVector rSMR,NumericVector CMD, DataFr
       v = v[rSMRLev == 7];
     }
     int j;
-    for(j = v[0]; j < v[v.length()]; j++){
+    for(j = v[0]; j < v[v.length()-1]; j++){
       if(CMD[i] <= CMDctf[j]){
         break;
       }
@@ -65,9 +65,14 @@ cppFunction('NumericVector calcASMR(NumericVector rSMR,NumericVector CMD, DataFr
 ```
 
 ```{r importData}
+##Set drive with cloud data
+if(dir.exists("C:/users/whmacken/Sync")){
+  cloud_dir <- "C:/users/whmacken/Sync/CCISS_data/CommonTables/"
+}else{
+  cloud_dir <- "C:/Users/kirid/Sync/CCISS_data/CommonTables/"
+}
+
 sibec <- fread("./inputsGit/SIBEC_2020_updatesof2013.csv")
-#sibec <- sibec %>% distinct()
-#write.csv(sibec, "./inputsGit/SIBEC_2020_updatesof2013.csv", row.names = FALSE)
 
 sibec_add <- fread("./inputsGit/SIBEC_2020_Add.csv") ## additional SI Max values added
 sibec_add <- sibec_add %>% dplyr::select(-Source)
@@ -76,12 +81,10 @@ sibec <- sibec[!is.na(MeanPlotSiteIndex),]
 MaxSppSI <-  fread("./inputsGit/MaxSppSI.csv") ## file with highest know SI values by species
 
 ##load and average climate data
-#climDat0 <- fread("C:/Users/kirid/Sync/CCISS_data/CommonTables/WNA_4k_HexPts_BGC_Normal_1961_1990MSY.csv")
-climDat0 <- fread("C:/Users/whmacken/Sync/CCISS_data/CommonTables/WNA_4k_HexPts_BGC_Normal_1961_1990MSY.csv")
+climDat0 <- fread(paste0(cloud_dir,"WNA_4k_HexPts_BGC_Normal_1961_1990MSY.csv"))
 climDat <- climDat0[,lapply(.SD, mean), by = .(BGC), .SDcols = 174:252]
 
-#eda <- fread("C:/Users/kirid/Sync/CCISS_data/CommonTables/Edatopic_v11_20.csv")
-eda <- fread("C:/Users/whmacken/Sync/CCISS_data/CommonTables/Edatopic_v11_20.csv")
+eda <- fread(paste0(cloud_dir,"Edatopic_v11_20.csv"))
 eda <- eda[is.na(Special),.(BGC,SS_NoSpace,Edatopic)]
 eda[,`:=`(rSMR = as.numeric(substr(Edatopic,2,2)),SNR = substr(Edatopic,1,1))]
 eda <- unique(eda)
@@ -90,14 +93,14 @@ rules <- fread("./inputsGit/aSMR_Rules_HalfStep_v11_09Dec2019.csv")
 ```
 
 ```{r clean data}
-Spp = "Bl"
+SppCurr = "Sx"
 
-sppAdj <- data.table(read.xlsx("./inputsGit/SI_percent_by_edagrid.xlsx",sheet = Spp))
+sppAdj <- data.table(read.xlsx("./inputsGit/SI_percent_by_edagrid.xlsx",sheet = SppCurr))
 sppAdj$aSMR <- 0:9
 sppAdj <- melt(sppAdj, id.vars = "aSMR", variable.name = "SNR")
 
-SppMaxSI <- MaxSppSI[MaxSppSI$Sp %in% Spp,]
-sibec <- sibec[TreeSpp == Spp,]
+SppMaxSI <- MaxSppSI[MaxSppSI$Sp %in% SppCurr,]
+sibec <- sibec[TreeSpp == SppCurr,]
 sibec[,BGC := gsub("/.*","",SS_NoSpace)]
 
 sibec[,isMax := MeanPlotSiteIndex == max(MeanPlotSiteIndex), by = .(BGC)]
@@ -105,28 +108,32 @@ simax <- sibec[(isMax),]
 simax <- simax %>% dplyr::rename (XSI = MeanPlotSiteIndex) %>% unique()
 
 ##check if max SI values are near max climatic potential (final table is simaxAvg)
-# simax2 <- eda[simax, on = "SS_NoSpace"]
-# simax2 <- climDat[,.(BGC,CMD)][simax2, on = "BGC"]
-# simax2 <- simax2[!is.na(CMD),]
-# simax2[, CMDadj := calcCMD_vec(CMD,rSMR)]
-# simax2[, aSMR := calcASMR(rSMR,CMDadj,rules)]
-# simax2[, aSMR := round(aSMR, digits = 0)]
-# 
-# simax2 <- sppAdj[simax2, on = c("aSMR","SNR")]
-# simaxAvg <- simax2[,.(BGC,XSI,PropMax = mean(value)), by = .(SS_NoSpace)]
-# simaxAvg <- unique(simaxAvg)
+simax2 <- eda[simax, on = "SS_NoSpace"]
+simax2 <- climDat[,.(BGC,CMD)][simax2, on = "BGC"]
+simax2 <- simax2[!is.na(CMD),]
+simax2[, CMDadj := calcCMD_vec(CMD,rSMR)]
+simax2[, aSMR := calcASMR(rSMR,CMDadj,rules)]
+simax2[, aSMR := round(aSMR, digits = 0)]
 
+simax2 <- sppAdj[simax2, on = c("aSMR","SNR")]
+simaxAvg <- simax2[,.(BGC,XSI,PropMax = mean(value)), by = .(SS_NoSpace)]
+simaxAvg <- unique(simaxAvg)
+
+toRemove <- simaxAvg[PropMax < 0.6, SS_NoSpace]
+simax <- simax[!SS_NoSpace %in% toRemove,]
+# simax <- simaxAvg[,.(SS_NoSpace,PropMax)] [simax, on = "SS_NoSpace"]
+# simax[!is.na(PropMax),XSI := XSI*(1/PropMax)]
 ###----will need to remove or adjust the SI where the max is on suboptimal CMD sites (e.g. where species only occurs on warm, dry sites)
 
 ##-------Removed for Fd curves
-simax <- simax %>% filter(!str_detect(simax$BGC, ("CDFmm|SBPSxc|IDFxm|ESSFmw|IDFdk4|ESSFxw_OR|IDFxh2|IDFdm2|IDFdm1|IDFxw|IDFxh1|IDFdk|SBSmw|SBSdw|ICHmk")))
+#simax <- simax %>% filter(!str_detect(simax$BGC, ("CDFmm|SBPSxc|IDFxm|ESSFmw|IDFdk4|ESSFxw_OR|IDFxh2|IDFdm2|IDFdm1|IDFxw|IDFxh1|IDFdk|SBSmw|SBSdw|ICHmk")))
 
 ##-------Removed for Bg curves
 #simax <- simax %>% filter(!str_detect(simax$BGC, ("CDFmm|SBPSxc|IDFxm|ESSFmw|IDFdk4|ESSFxw_OR|IDFxh2|IDFdm2|IDFdm1|IDFxw|IDFxh1|IDFdk|SBSmw|SBSdw|ICHmk")))
 
 climSI <- left_join(simax, climDat) %>% dplyr::select(BGC, XSI, DD5, DD18, EXT) #%>% mutate(XSIadj = ifelse (DD5 >= 1100, XSI + ((DD5 - 1100) *.02), XSI))
-coastSI <- climSI %>% dplyr::filter(str_detect(BGC, ("CWH|CDF|CMX|MH|MHRF|CVG|CRF|CMA|CWF|CCH|IDFww|ESSFmk")))#, "CMX", "MH", "MHRF", "CVG", "CRF")))
-interSI<- climSI %>% dplyr::filter(!str_detect(BGC, ("CWH|CDF|CMX|MH|MHRF|CVG|CRF|CMA|CWF|CCH|IDFww|ESSFmk")))#, "CMX", "MH", "MHRF", "CVG", "CRF")))
+coastSI <- climSI %>% dplyr::filter(str_detect(BGC, ("CWH|CDF|CMX|MH|MHRF|CVG|CRF|CMA|CWF|CCH|IDFww|ESSFmk")))
+interSI<- climSI %>% dplyr::filter(!str_detect(BGC, ("CWH|CDF|CMX|MH|MHRF|CVG|CRF|CMA|CWF|CCH|IDFww|ESSFmk")))
 
 clim_coast <- climDat %>% dplyr::filter(str_detect(BGC, ("CWH|CDF|CMX|MH|MHRF|CVG|CRF|CMA|CWF|CCH|IDFww|ESSFmk"))) %>% dplyr::select(BGC, DD5, DD18, EXT) 
 clim_inter <- climDat %>% dplyr::filter(!str_detect(BGC, ("CWH|CDF|CMX|MH|MHRF|CVG|CRF|CMA|CWF|CCH|IDFww|ESSFmk"))) %>% dplyr::select(BGC, DD5, DD18, EXT) 
@@ -140,7 +147,7 @@ pc <- ggplot(coastSI, aes(x = DD5, y = XSI))+
   geom_point() +
   #geom_point(shape = 21, fill = "red", size = 1)+
   geom_jitter(width = 0) +
-  scale_y_continuous(limit = c(0, 45))+
+  scale_y_continuous(limit = c(0, 82))+
      scale_x_continuous(limit = c(0, 5000))+
     ggtitle("DD5 range by Coastal BGC")+
   geom_text (aes(label= BGC), size = 2, hjust = -.1, position = position_dodge(width=1) )+
@@ -168,7 +175,7 @@ pi <- ggplot(interSI, aes(x = DD5, y = XSI))+
  # coord_flip()+
     ggtitle("SI by DD5 Interior")+   xlab ("DD5")+
    scale_x_continuous(limit = c(0, 3000))+
-  scale_y_continuous(limit = c(0, 45))+
+  scale_y_continuous(limit = c(0, 82))+
   #geom_segment(aes(x=350, y=0, xend=1100, yend = 28))+
   #geom_abline(intercept = -11, slope = .042, color = "green")+
   #geom_abline(intercept = -1.86715, slope = .0263, color = "red")+
@@ -253,208 +260,39 @@ predictComb <- sppAdj[predictComb, on = c("aSMR","SNR")]
 predictComb[,PredictedSI := PredictedSI*value]
 predSIfinal <- predictComb[,.(BGC, SS_NoSpace, Edatopic, aSMR, PredictedSI)] ##each edatopic position
 SIbySS <- predSIfinal[,.(SIPred = mean(PredictedSI)), by = .(SS_NoSpace)] ##averaged by site series
+
+SIbySS[SIPred < 0, SIPred := 0]
 ```
 
+```{r update table}
+suit <- fread(paste0(cloud_dir,"Feasibility_v11_21.csv"))
+suit <- suit[Spp  == SppCurr,.(BGC,SS_NoSpace,Spp,Feasible)]
+suit <- SIbySS[suit, on = "SS_NoSpace"]
+temp <- sibec[,.(SS_NoSpace,SIBEC2013 = MeanPlotSiteIndex)]
+suit <- temp[suit, on = "SS_NoSpace"]
+suit <- suit[,.(BGC,SS_NoSpace,Spp,Feasible,SIBEC2013,SIPred)]
 
+library(RPostgreSQL)
+dbSafeNames = function(names) {
+  names = gsub('[^a-z0-9]+','_',tolower(names))
+  names = make.names(names, unique=TRUE, allow_=TRUE)
+  names = gsub('.','_',names, fixed=TRUE)
+  names
+}
 
+colnames(suit) <- dbSafeNames(colnames(suit))
+drv <- dbDriver("PostgreSQL")
+con <- dbConnect(drv, user = "postgres", password = "Kiriliny41", host = "smithersresearch.ca", 
+                 port = 5432, dbname = "common_tables")
 
+##if in Will's house, use this one
+# con <- dbConnect(drv, user = "postgres", password = "Kiriliny41", host = "FLNRServer", 
+#                  port = 5432, dbname = "common_tables")
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-vars <- names(climDat)[-1]
-#suit <- fread("C:/Users/kirid/Sync/CCISS_data/CommonTables/Feasibility_v11_21.csv")
-suit <- fread("C:/Users/whmacken/Sync/CCISS_data/CommonTables/Feasibility_v11_21.csv")
-suit <- suit[Spp == "Fd",.(BGC,SS_NoSpace,Spp,Feasible)]
-suit[,isMax := Feasible == min(Feasible), by = .(BGC)]
-suit2 <- suit[(isMax), head(.SD,1), by = .(BGC)]
-sibec <- merge(sibec, suit2, by = "BGC", all = T)
-#units <- fread("C:/Users/kirid/Sync/CCISS_data/CommonTables/All_BGCs_v11_21.csv")
-units <- fread("C:/Users/whmacken/Sync/CCISS_data/CommonTables/All_BGCs_v11_21.csv")
-BC.units <- units[DataSet == "BC",Map_Label]
-climDat <- climDat[BGC %in% BC.units,]
-treeClm <- sibec[climDat, on = "BGC"]
-
-minSI <- treeClm[MeanPlotSiteIndex < quantile(MeanPlotSiteIndex,0.03, na.rm = T),.(BGC,MeanPlotSiteIndex,DD5)]
-minVals <- data.table(x = c(mean(minSI$DD5), min(treeClm$DD5)), y = c(mean(minSI$MeanPlotSiteIndex),0))
-dd5Fit <- lm(y ~ x, data = minVals)
-coefs <- dd5Fit$coefficients
-treeClm[is.na(MeanPlotSiteIndex), MeanPlotSiteIndex := coefs[1]+coefs[2]*DD5]
-dat <- treeClm[,c("BGC","MeanPlotSiteIndex",..vars)]
-dat <- unique(dat)
-
-##now hotter units
-#climDat <- fread("C:/Users/kirid/Sync/CCISS_data/CommonTables/WNA_4k_HexPts_BGC_Normal_1961_1990MSY.csv")
-climDat <- climDat0[,lapply(.SD, mean), by = .(BGC), .SDcols = 174:252]
-#units <- fread("C:/Users/kirid/Sync/CCISS_data/CommonTables/All_BGCs_v11_21.csv")
-units <- fread("C:/Users/whmacken/Sync/CCISS_data/CommonTables/All_BGCs_v11_21.csv")
-US.units <- units[DataSet == "USA",Map_Label]
-climDat <- climDat[BGC %in% US.units,]
-suitClm <- suit[climDat, on = "BGC"]
-temp <- suitClm[,.(BGC,Feasible,DD5,DD18,DD18_sm,Eref,CMD)]
-suit.fit <- step(lm(Feasible ~1, data = temp[!is.na(Feasible)]), 
-     scope = list(lower = ~1, upper = ~ DD5*DD18*Eref*CMD), trace = 3)
-suitClm[CMD > quantile(CMD,0.95) & DD18 > quantile(DD18, 0.95), MeanPlotSiteIndex := 5]
-suitClm <- suitClm[!is.na(MeanPlotSiteIndex),c("BGC","MeanPlotSiteIndex",..vars)]
-dat <- rbind(dat, suitClm)
-
-climDat <- suit[climDat, on = "BGC"]
-treeClm <- climDat[sibec, on = "BGC"]
-treeClm <- treeClm[!is.na(treeClm$DD5),]
-datCoast <- treeClm %>% dplyr::filter(str_detect(BGC, ("CWH|CDF|CMX|MH|MHRF|CVG|CRF|CMA|CWF|CCH")))#, "CMX", "MH", "MHRF", "CVG", "CRF")))
-datInterior <- treeClm%>% dplyr::filter(!str_detect(BGC, ("CWH|CDF|CMX|MH|MHRF|CVG|CRF|CMA|CWF|CCH")))#, "CMX", "MH", "MHRF", "CVG", "CRF")))
-#datCoast <- treeClm[grep("^C.*",BGC),]
-#datInterior <- treeClm[!BGC %in% datCoast$BGC,]
-temp <- datInterior[,c("MeanPlotSiteIndex",..vars)]
-#temp <- datCoast[,c("MeanPlotSiteIndex",..vars)]
-
-rf <- randomForest(MeanPlotSiteIndex ~ ., data = temp, importance = T, proximity = T)
-imp <- importance(rf)
-treeClm[,eq1 := 2.801+0.0616*DD5-0.0202*DD_18-0.1536*Eref]
-# treeClm[,eq2 := DD5*0.022]
-# plot(MeanPlotSiteIndex ~ eq1, data = treeClm)
-# 
-
-modInt <- step(lm(MeanPlotSiteIndex ~1, data = dat), 
-     scope = list(lower = ~1, upper = ~ DD5*DD_18*Eref*CMD*PAS_wt), trace = 3)
-summary(modInt)
-plot(datInterior$MeanPlotSiteIndex,modInt$fitted.values)
-
-modCoast <- step(lm(MeanPlotSiteIndex ~1, data = datCoast), 
-     scope = list(lower = ~1, upper = ~ DD5*DD_18*Eref*CMD*PAS_wt), trace = 3)
-summary(modCoast)
-plot(datCoast$MeanPlotSiteIndex,modCoast$fitted.values)
-
-
-
-modAll <- step(lm(MeanPlotSiteIndex ~1, data = dat), 
-     scope = list(lower = ~1, upper = ~ DD5*DD_18*Eref*CMD*PAS_wt), trace = 3)
-summary(modAll)
-plot(dat$MeanPlotSiteIndex,modAll$fitted.values)
-
-
-
-
-
-
-
-
-
-fit2 <- lm(MeanPlotSiteIndex ~ DD5 + DD_18 + Eref + CMD + DD5:DD_18 + 
-    DD5:Eref + DD_18:Eref + DD5:CMD + DD5:DD_18:Eref, data = treeClm)
-plot(treeClm$MeanPlotSiteIndex,fit2$fitted.values)
-
-fit2 <- lm(MeanPlotSiteIndex ~ DD5 + DD_18 + Eref + CMD + DD5:DD_18, data = treeClm)
-plot(treeClm$MeanPlotSiteIndex,fit2$fitted.values)
-
-coefs <- fit2$coefficients
-treeClm[,eq3 := coefs[1]+coefs[2]*DD5+coefs[3]*DD_18+coefs[4]*Eref+coefs[5]*DD5*DD_18]
-treeClm[,testEq := 8.492 + 0.0222*Eref]
-```
-Predict into US BGCs
-
-```{r USPred}
-#climUS <- fread("C:/Users/kirid/Sync/CCISS_data/CommonTables/WNA_4k_HexPts_BGC_Normal_1961_1990MSY.csv")
-climUS <- climDat0[,lapply(.SD, mean), by = .(BGC), .SDcols = 174:252]
-vars <- names(climUS)[-1]
-
-climUS[grep("^C.*",BGC),PredSI := predict(modCoast, newdata = climUS[grep("^C.*",BGC),-1])]
-climUS[is.na(PredSI),PredSI := predict(modInt, newdata = climUS[is.na(PredSI),-1])]
-climUS$PredSI <- predict(modAll, newdata = climUS[,-1])
-#climUS$BGC <- factor(climUS$BGC, levels = climUS$BGC[order(climUS$DD5)])
-pred <-  climUS[,.(BGC,DD5,PredSI)]
-pred <- pred[PredSI > 0,]
-pred[PredSI < -5 | PredSI > 40, Lab := BGC]
-
-ggplot(pred, aes(x = DD5, y = PredSI))+
-  geom_point()+
-  geom_text(aes(label = Lab), size = 3)
-
-
-suit <- pred[suit, on = "BGC"]
-```
-
-
-```{r simple model}
-sibec <- fread("./inputsGit/SIBEC_2013_Summary.csv")
-Spp = "Fd"
-sibec <- sibec[TreeSpp == Spp,]
-sibec[,BGC := gsub("/.*","",SS_NoSpace)]
-sibec[,isMax := MeanPlotSiteIndex == max(MeanPlotSiteIndex), by = .(BGC)]
-sibec <- sibec[(isMax),]
-
-#climDat <- fread("C:/Users/kirid/Sync/CCISS_data/CommonTables/WNA_4k_HexPts_BGC_Normal_1961_1990MSY.csv")
-climDat0 <- fread("C:/Users/whmacken/Sync/CCISS_data/CommonTables/WNA_4k_HexPts_BGC_Normal_1961_1990MSY.csv")
-climDat <- climDat0[,lapply(.SD, mean), by = .(BGC), .SDcols = 174:252]
-vars <- names(climDat)[-1]
-#suit <- fread("C:/Users/kirid/Sync/CCISS_data/CommonTables/Feasibility_v11_21.csv")
-suit <- fread("C:/Users/whmacken/Sync/CCISS_data/CommonTables/Feasibility_v11_21.csv")
-suit <- suit[Spp == "Fd",.(BGC,SS_NoSpace,Spp,Feasible)]
-suit[,isMax := Feasible == min(Feasible), by = .(BGC)]
-suit2 <- suit[(isMax), head(.SD,1), by = .(BGC)]
-sibec <- merge(sibec, suit2, by = "BGC", all = T)
-#units <- fread("C:/Users/kirid/Sync/CCISS_data/CommonTables/All_BGCs_v11_21.csv")
-units <- fread("C:/Users/whmacken/Sync/CCISS_data/CommonTables/All_BGCs_v11_21.csv")
-BC.units <- units[DataSet == "BC",Map_Label]
-climDat <- climDat[BGC %in% BC.units,]
-treeClm <- sibec[climDat, on = "BGC"]
-
+##si_working <- dbGetQuery(con, "SELECT * FROM si_working")
+dbWriteTable(con, "si_working", suit, row.names = FALSE, append = TRUE)
+dbDisconnect(con)
 
 ```
 
 
-```{r simple regression}
-require(forcats)
-require(stringr)
-
-#allDat$ID2 <- as.character(allDat$ID2)
-coastDat <- allDat %>% dplyr::filter(str_detect(ID2, ("CWH|CDF|CMX|MH|MHRF|CVG|CRF|CMA|CWF|CCH")))#, "CMX", "MH", "MHRF", "CVG", "CRF")))
-interDat <- allDat %>% dplyr::filter(!str_detect(ID2, ("CWH|CDF|CMX|MH|MHRF|CVG|CRF|CMA|CWF|CCH")))#, "CMX", "MH", "MHRF", "CVG", "CRF")))
-pc <- ggplot(coastDat, aes(x = fct_reorder(ID2, DD18), y = DD18))+
-  geom_point() +
-  #geom_point(shape = 21, fill = "red", size = 1)+
-  #geom_jitter(width = 0) +
-  coord_flip()+
-    ggtitle("DD5 range by Coastal BGC")+
-  xlab ("BGC")+
-  #scale_y_continuous("DD5", breaks=seq(0,8000,500))+
-  theme_bw()
-  #geom_text (aes(label= BGC), size = 1, hjust = -1, position = position_dodge(width=1) )#
-#ggsave("./outputs/CMD_ranges of Expert aSMR of Zonal.pdf", plot = p, dpi = "print", device = "pdf", width = 15, height = 15, units = "cm")
-#ggsave("./outputs/CMD_ranges.png", plot = p, dpi = "print", device = "png", width = 15, height = 15, units = "cm")
-plot(pc)
-
-pi <- ggplot(interDat, aes(x = fct_reorder(ID2, DD18), y = DD18))+
-  geom_boxplot() +
-  #geom_point(shape = 21, fill = "red", size = 1)+
-  #geom_jitter(width = 0) +
-  coord_flip()+
-    ggtitle("DD5 range by Interior BGC")+
-  xlab ("BGC")+
-  #scale_y_continuous("DD5", breaks=seq(0,8000,500))+
-  theme_bw()
-  #geom_text (aes(label= BGC), size = 1, hjust = -1, position = position_dodge(width=1) )#
-#ggsave("./outputs/CMD_ranges of Expert aSMR of Zonal.pdf", plot = p, dpi = "print", device = "pdf", width = 15, height = 15, units = "cm")
-#ggsave("./outputs/CMD_ranges.png", plot = p, dpi = "print", device = "png", width = 15, height = 15, units = "cm")
-plot(pi)
-
-
-``` 
