@@ -123,7 +123,7 @@ rules <- fread("./inputsGit/aSMR_Rules_HalfStep_v11_09Dec2019.csv")
 ```
 
 ```{r clean data}
-SppCurr = "Fd"
+SppCurr = "Bl"
 sibec <- sibec0
 sppAdj <- data.table(read.xlsx("./inputsGit/SI_percent_by_edagrid.xlsx",sheet = SppCurr))
 sppAdj$aSMR <- 0:9
