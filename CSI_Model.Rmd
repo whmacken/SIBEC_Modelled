@@ -1,0 +1,144 @@
+---
+title: "Climatic Optimum SI"
+author: "Will MacKenzie"
+date: "10/12/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+require(plyr)
+require(tidyverse)
+require(dplyr)
+require(forcats)
+```
+
+This code is designed to create a prior model of site index for the climatic maximum SI for tree species based on 
+1. A Gompertz curve for max SI by DD5
+Enter Maximum SI for the species (y axis)
+Displacement is the X-axis displacment (not clear what this actually does)
+max growth rate = y-axis increment at max rate of change
+DD5 is the range of DD5 to model
+
+beginning at the DD5 at which tree growth begins to maximum SI for the species at the DD5 of the BGC which first expresses SImax
+2. The maximum curve then decline by an exponential function.
+
+Inputs are a table with min DD5, max SI, DD5 of maximum 
+
+```{r build theoretical SI}
+ gompertz <- function(DD5_range, maxSI, maxrate, minDD5){
+  y <- maxSI*exp(-exp(maxrate*exp(1)/maxSI*(minDD5- DD5_range)+1))
+  return(data.frame(DD5_range =DD5_range, y=y))
+}
+Gomp_para <- fread("./inputs/GompertzParametersbySpp.csv")
+
+### each species gets a function that dictates SI by DD5.
+### the climatic maximum SI for a BGC is calculated from its y value at DD5
+spp <- "Fdi"
+Gomp_para1 <- Gomp_para %>% filter(Spp %in% spp) 
+x <- as.numeric(Gomp_para1[1,c(2:5)])
+spp_CSI1 <- gompertz(1:x[1],x[2],x[3],x[4]) %>% dplyr::rename(gomp1 = y) %>% round(1)## estimate for subalpine fir
+plot(spp_CSI1)
+#gompertz distribution by species
+    #need to calculate the max rate based on the DD5 at which maxSI is first achieved.
+### reduction in effective DD5 due to high temperatures sets the SI back along the curve 
+Gomp_para1 <- Gomp_para %>% filter(Spp %in% spp) 
+x <- as.numeric(Gomp_para1[1,c(2:3,6:7)])
+
+spp_CSI2 <- gompertz(1:x[1],x[2],x[3],x[4])%>% dplyr::rename(gomp2 = y) %>% round(1) 
+plot(spp_CSI2)
+spp_CSI2 <- spp_CSI2 %>% dplyr::select(-DD5_range)
+
+spp_CSI <- bind_cols (spp_CSI1, spp_CSI2) %>%  mutate (CSI = gomp1 - gomp2) %>% dplyr::select(DD5_range, CSI)
+spp_CSI$DD5_range <- as.character(spp_CSI$DD5_range)
+plot(spp_CSI)
+
+
+```
+
+```{r compare to BGC data}
+allDat <- fread("D:/CommonTables/Climate_Data/ALLWNAv11_AllVars.csv", data.table = FALSE, stringsAsFactors = FALSE) ###Climate data 1961-90for representative points per BGC  with all variables
+allDat <- allDat[!(allDat$DD5 == -9999),] %>% mutate_if(is.integer, as.numeric)
+allDat$BGC <- as.factor(allDat$BGC)
+
+coastDat <- allDat %>% dplyr::filter(str_detect(BGC, ("CWH|CDF|CMX|MH|MHRF|CVG|CRF|CMA|CWF|CCH")))#, "CMX", "MH", "MHRF", "CVG", "CRF")))
+interDat <- allDat %>% dplyr::filter(!str_detect(BGC, ("CWH|CDF|CMX|MH|MHRF|CVG|CRF|CMA|CWF|CCH"))) %>% dplyr::filter(!(BGC== "MSSD")) %>% 
+  dplyr::select(BGC, DD5, DD_0) %>% droplevels()
+#, "CMX", "MH", "MHRF", "CVG", "CRF")))
+
+BGC_DD5 <- setDT(interDat)[ , .(mean_DD5 = mean(DD5)), by = BGC] 
+BGC_DD0 <- setDT(interDat)[ , .(mean_DD0 = mean(DD_0)), by = BGC] %>%  mutate(mean_DD0 = (mean_DD0 - 1000)/5)
+BGC_DD0$mean_DD0 <- ifelse(BGC_DD0$mean_DD0 <0, 0, BGC_DD0$mean_DD0) ## reduce DD5 as a function of cold soils
+BGC_DD5 <- left_join(BGC_DD5,BGC_DD0 ) %>% mutate(mean_DD5 = mean_DD5 - mean_DD0)
+BGC_DD5$mean_DD5 <- BGC_DD5$mean_DD5 %>% round_any(10) %>% as.character()
+
+
+BGC_SI <- left_join(BGC_DD5, spp_CSI, by = c("mean_DD5" = "DD5_range")) %>% distinct() %>% dplyr::select(-mean_DD5) %>% mutate_if(is.character, as.numeric) %>% arrange(CSI) %>% droplevels() %>%  mutate(BGC= fct_reorder(BGC, CSI)) %>% mutate(SIcat = "" ) %>% if_na(0)
+###SI thresholds
+x <- as.numeric(Gomp_para1[1,c(8:12)])
+
+BGC_SI$SIcat  <- ifelse(BGC_SI$CSI<=x[1], "0nil",
+                        ifelse(BGC_SI$CSI>x[1] & BGC_SI$CSI<=x[2], "1vlow",
+                               ifelse(BGC_SI$CSI>x[2] & BGC_SI$CSI<=x[3], "2low",
+                                      ifelse(BGC_SI$CSI>x[3] & BGC_SI$CSI<=x[4], "3med",
+                                             ifelse(BGC_SI$CSI>x[4] & BGC_SI$CSI<=x[5], "4hi", 
+                                                    ifelse(BGC_SI$CSI>x[5], "5max","other")))))) 
+ggplot(BGC_SI, aes(BGC,CSI))+
+  geom_point()+ 
+  theme(axis.text.x = element_text(angle = 90, size = 7) )+
+  facet_wrap(.~ SIcat, scales='free', shrink = FALSE, ncol = 2)
+
+```
+
+
+
+```{r fit gompertz}
+fit.gompertz <- function(data, time){
+  d <- data.frame(y=data, t=time)
+  
+  # Must have at least 3 datapoints at different times
+  if (length(unique(d$t)) < 3) stop("too few data points to fit curve")
+  
+  # Pick starting values ###
+  i <- which.max(diff(d$y))
+  starting.values <- c(a=max(d$y), 
+                       mu=max(diff(d$y))/(d[i+1,"t"]-d[i, "t"]), 
+                       lambda=i)
+  print("Starting Values for Optimization: ")
+  print(starting.values)
+  ##########################
+  
+  formula.gompertz <- "y~a*exp(-exp(mu*exp(1)/a*(lambda-t)+1))"
+  nls(formula.gompertz, d, starting.values)
+} 
+SI <- c(0, 0.1, 5, 9.9, 10)
+DD5 <- c(10, 100, 250, 500, 1000)
+d <- cbind(DD5, SI)
+d <- as.data.frame(d)
+fit <- fit.gompertz(d$SI, d$DD5)
+
+plot(d)
+lines(d$DD5, predict(fit))
+
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+##Here is an example of the R-code I used to fit Gompertz model to my data (number of cases of Ebola in Liberia):
+################################### ### GOMPERTZ
+alpha = 9526 beta = 9.1618 k = 0.0028
+nls.gompertz <- minpack.lm::nlsLM(data$cases ˜ alpha*exp(-beta*exp(-k*data$days)), data = data, start = list(alpha = alpha, beta = beta, k = k), control = list(maxiter = 500))
+coef(nls.gompertz) ## alpha = 9437, beta = 59.24, k = 0.0219
+## Now fit Geompertz model
+growth.gompertz <- growthmodels::gompertz(data$days, alpha = coef(nls.gompertz)[["alpha"]], beta = coef(nls.gompertz)[["beta"]], k = coef(nls.gompertz)[["k"]])
+growth.gompertz
+## Predict
+predict.gompertz <-growthmodels::gompertz(days.predict, alpha = coef(nls.gompertz)[["alpha"]], beta = coef(nls.gompertz)[["beta"]], k = coef(nls.gompertz)[["k"]])
+predict.gompertz
+## the values for 18/4, 18/5, 18/6, and 18/7 predict.gompertz[c(84:87)]
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
