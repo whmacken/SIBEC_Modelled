@@ -1,9 +1,7 @@
 SS_NoSpace,TreeSpp,MeanPlotSiteIndex,Source
-ESSFmc,At,0,WHM - known limit
-PPxk_OR,At,14,Simpson E. Or. Cascades
 CMAun,Ba,0,WHM - known limit
 MHdm_OR,Ba,18,Simpson E. Or. Cascades
-CWHdm_OR,Ba,21,Simpson E. Or. Cascades
+CWHdm_OR,Ba,0,Simpson E. Or. Cascades
 CWHvm_OR,Ba,21,McCain W.OR Cascades
 MHdm_OR,Bc,18,Simpson E. Or. Cascades
 CWHvm_OR,Bc,22,McCain W.OR Cascades
@@ -27,6 +25,9 @@ MHdm_OR,Bl,12,Simpson E. Or. Cascades
 CWHms_OR,Bl,18,Simpson E. Or. Cascades
 ESSFxw_OR,Bl,21,Johnson Blue-Ochoco MTns
 Msxk_OR,Bl,21,Johnson Blue-Ochoco MTns
+BGxw1,Bl,0,WHM - known limit
+IGFmm_OR,Bl,0,WHM - known limit
+IWFdw_OR,Bl,0,WHM - known limit
 MHRFmm_OR,Bm,14,Simpson E. Or. Cascades
 MHdm_OR,Bm,18,Simpson E. Or. Cascades
 IWFdw_OR,Bm,20,Simpson E. Or. Cascades
@@ -62,16 +63,30 @@ IWFdw_OR,Fd,30,Simpson E. Or. Cascades
 IWFdw_OR,Fd,32,McCain W.OR Cascades
 CWHvm_OR,Fd,34,McCain W.OR Cascades
 CWHdm_OR,Fd,45,McCain W.OR Cascades
+SBSdk,Fd,22.4,lepage offsite
+SBSmc2,Fd,23.5,lepage offsite
 MHdm_OR,Hm,12,Simpson E. Or. Cascades
 CWHms_OR,Hw,22,Simpson E. Or. Cascades
 CWHdm_OR,Hw,35,McCain W.OR Cascades
 CWHvm_OR,Hw,35,McCain W.OR Cascades
+MHmmp,Hw,0,WHM - known limit
+CMXxm_CA,Hw,0,WHM - known limit
 IDFxx_WA,Jw,16,Simpson E. Or. Cascades
 ESSFmc,Lw,0,WHM - known limit
 ESSFxw_OR,Lw,21,Johnson Blue-Ochoco MTns
 Msxk_OR,Lw,21,Johnson Blue-Ochoco MTns
 CWHdm_OR,Lw,24,Simpson E. Or. Cascades
 IGFmm_OR,Lw,28,Johnson Blue-Ochoco MTns
+SBSdk,Lw,34.5,lepage offsite
+ICHwk2,Lw,22,Cariboo experiment
+SBSmw,Lw,23,Cariboo experiment
+ESSFwk1,Lw,22,Cariboo experiment
+BGwm_WA,Lw,0,Cariboo experiment
+SBSmc2,Lw,15.7,lepage offsite
+BAFAun,Lw,0,WHM - known limit
+IMAun,Lw,0,WHM - known limit
+CWHvh1,Lw,0,Added to have coastal entry
+CWHwm,Lw,0,Added to have coastal entry
 CWHdm_OR,Mb,40,Simpson E. Or. Cascades
 PPxk_OR,Oa,12,Simpson E. Or. Cascades
 IDFxx_WA,Oa,16,Simpson E. Or. Cascades
@@ -87,22 +102,12 @@ CWHdm_OR,Pl,15,Simpson E. Or. Cascades
 CWHms_OR,Pl,18,Simpson E. Or. Cascades
 IWFdw_OR,Pl,19,Simpson E. Or. Cascades
 Msxk_OR,Pl,21,Johnson Blue-Ochoco MTns
+BGxh3,Pl,0,WHM - known limit
+IDFxx2,Pl,0,WHM - known limit
 MHRFmm_OR,Ps,16,Simpson E. Or. Cascades
 IDFxx_WA,Ps,18,Simpson E. Or. Cascades
 CWHdm_OR,Ps,30,Simpson E. Or. Cascades
 IWFdw_OR,Ps,30,Simpson E. Or. Cascades
-MHRFmm_OR,Pw,14,Simpson E. Or. Cascades
-MHdm_OR,Pw,18,Simpson E. Or. Cascades
-IGFmm_OR,Pw,21,Johnson Blue-Ochoco MTns
-IWFdw_OR,Pw,21,Simpson E. Or. Cascades
-CWHms_OR,Pw,27,Simpson E. Or. Cascades
-CWHdm_OR,Pw,28,Simpson E. Or. Cascades
-MHRFmm_OR,Py,16,Simpson E. Or. Cascades
-IGFmm_OR,Py,19,Johnson Blue-Ochoco MTns
-PPxk_OR,Py,19,Simpson E. Or. Cascades
-IDFxx_WA,Py,22,Simpson E. Or. Cascades
-CWHdm_OR,Py,33,Simpson E. Or. Cascades
-IWFdw_OR,Py,35,Simpson E. Or. Cascades
 BAFAun,Sx,0,WHM - known limit
 IMAun,Sx,0,WHM - known limit
 IDFxx2,Sx,0,WHM - known limit
@@ -120,20 +125,74 @@ Msxk_OR,Sx,21,Johnson Blue-Ochoco MTns
 CWHdm_OR,Sx,22,Simpson E. Or. Cascades
 IWFdw_OR,Sx,24,Simpson E. Or. Cascades
 CWHms_OR,Sx,26,Simpson E. Or. Cascades
-BGxh3,Pl,0,WHM - known limit
-BGxw1,Bl,0,WHM - known limit
-IGFmm_OR,Bl,0,WHM - known limit
-IWFdw_OR,Bl,0,WHM - known limit
-SBSdk,Lw,34.5,lepage offsite
-IDFxx2,Pl,0,WHM - known limit
-ICHwk2,Lw,22,Cariboo experiment
-SBSmw,Lw,23,Cariboo experiment
-ESSFwk1,Lw,22,Cariboo experiment
-BGwm_WA,Lw,0,Cariboo experiment
-SBSdk,Fd,22.4,lepage offsite
-SBSmc2,Fd,23.5,lepage offsite
-SBSmc2,Lw,15.7,lepage offsite
-BAFAun,Lw,0,WHM - known limit
-IMAun,Lw,0,WHM - known limit
-MHmmp,Hw,0,WHM - known limit
-CMXxm_CA,Hw,0,WHM - known limit
+ESSFmcp,At,0,WHM - known limit
+CWHvh1,At,0,Added to have coastal entry
+CWHwm,At,0,Added to have coastal entry
+BWBSmw,At,22.4,estimate
+IDFdk_WA,At,22.4,estimate
+IDFdh_UT,At,22.4,estimate
+IDFdx_MT,At,22.4,estimate
+IDFdh_MT,At,22.4,estimate
+BGwm_WA,At,0,WHM - known limit
+SBSdk,At,26,estimate
+IDFdk3,At,26,estimate
+BWBSmw,At,26,estimate
+MSdm1,At,30,estimate
+ICHdw1,At,30,estimate
+IDFww,Ep,28,estimate-Wang/Kimmins
+CWHdm,Ep,28,estimate-Wang/Kimmins
+ICHmw1,Ep,22,estimate-Wang/Kimmins
+ICHmw2,Ep,30,estimate-Simard
+ICHmw3,Ep,30,estimate-Simard
+IDFmw2,Ep,25,estimate-Simard
+BWBSmw,Ep,20,estimate
+ESSFmc,Ep,0,estimate
+SBSdw3,Ep,22,estimate
+SBSmh,Ep,26,estimate
+PPxh2,Ep,0,estimate
+SBSmc2,Ep,0,estimate
+CWHds1,Ep,26,estimate
+CWHms1,Ep,27,estimate
+CWHms2,Ep,26,estimate
+CWHws2,Ep,22,estimate
+CWHds_WA,Ep,26,estimate
+CWHds2,Ep,27,estimate
+MHmm2,Ep,0,estimate
+CDFmm,Ep,0,estimate
+ESSFvc,Ep,0,estimate
+IMAunp,Ep,0,estimate
+BAFAun,Ep,0,estimate
+CMXwm_CA,Py,33,estimate-Powers
+CMXxm_CA,Py,13,estimate-Powers
+MHRFmm_OR,Py,16,Simpson E. Or. Cascades
+IGFmm_OR,Py,19,Johnson Blue-Ochoco MTns
+PPxk_OR,Py,19,Simpson E. Or. Cascades
+IDFxx_WA,Py,22,Simpson E. Or. Cascades
+CWHdm_OR,Py,33,Simpson E. Or. Cascades
+IWFdw_OR,Py,35,Simpson E. Or. Cascades
+MHdm_OR,Py,0,WHM - known limit
+ESSFmc,Py,0,WHM - known limit
+GBDdw_UT,Py,0,WHM - known limit
+SGPdm_CO,Py,0,WHM - known limit
+CVGdm_CA,Py,0,WHM - known limit
+CCHun_CA,Py,0,WHM - known limit
+JPWxh_CA,Py,0,WHM - known limit
+MSSDun_NV,Py,0,WHM - known limit
+ESSFmw,Pw,14,estimate
+MHmm1,Pw,10,estimate
+MHmmp,Pw,0,estimate
+IMAunp,Pw,0,estimate
+MHRFmm_OR,Pw,14,Simpson E. Or. Cascades
+MHdm_OR,Pw,14,Simpson E. Or. Cascades
+IGFmm_OR,Pw,21,Johnson Blue-Ochoco MTns
+IWFdw_OR,Pw,21,Simpson E. Or. Cascades
+CWHms_OR,Pw,27,Simpson E. Or. Cascades
+CWHdm_OR,Pw,28,Simpson E. Or. Cascades
+CWHdm,Pw,30,estimate
+ESSFwcp,Pw,0,
+CWHxm_OR,Pw,0,
+BGxh2,Pw,0,
+GBDdw_UT,Pw,0,
+ICHmc2,Ba,0,
+ESSFmc,Ba,0,
+CWHxm2,Ba,0,
