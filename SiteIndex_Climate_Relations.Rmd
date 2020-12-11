@@ -114,8 +114,6 @@ require(stringr)
 coastDat <- allDat %>% dplyr::filter(str_detect(ID2, ("CWH|CDF|CMX|MH|MHRF|CVG|CRF|CMA|CWF|CCH")))#, "CMX", "MH", "MHRF", "CVG", "CRF")))
 interDat <- allDat %>% dplyr::filter(!str_detect(ID2, ("CWH|CDF|CMX|MH|MHRF|CVG|CRF|CMA|CWF|CCH"))) %>% dplyr::filter(!(ID2 == "MSSD"))#, "CMX", "MH", "MHRF", "CVG", "CRF")))
 
-BGC_DD5 <- setDT(interDat)[ , .(mean_DD5= mean(DD5)), by = ID2] %>% round_any(10)
-
 pc <- ggplot(coastDat, aes(x = fct_reorder(ID2, DD5), y = DD5))+
   geom_boxplot() +
   #geom_point(shape = 21, fill = "red", size = 1)+
@@ -131,7 +129,7 @@ pc <- ggplot(coastDat, aes(x = fct_reorder(ID2, DD5), y = DD5))+
 #ggsave("./outputs/CMD_ranges.png", plot = p, dpi = "print", device = "png", width = 15, height = 15, units = "cm")
 plot(pc)
 
-pi <- ggplot(interDat, aes(x = fct_reorder(ID2, DD5), y = DD5))+
+pi <- ggplot(interDat, aes(x = fct_reorder(ID2, DD_0), y = DD_0))+
   geom_boxplot() +
   #geom_point(shape = 21, fill = "red", size = 1)+
   #geom_jitter(width = 0) +
