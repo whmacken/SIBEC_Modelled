@@ -116,7 +116,7 @@ climDat <- climDat0[,lapply(.SD, mean), by = .(BGC), .SDcols = 6:86]
 climDat2 <-climDat %>% dplyr::select(BGC, CMD.total)
 
 eda <- fread(paste0(cloud_dir,"Edatopic_v11_20.csv"))
-eda <- eda[is.na(Special),.(BGC,SS_NoSpace,Edatopic)]
+#eda <- eda[is.na(Special),.(BGC,SS_NoSpace,Edatopic)]
 eda[,`:=`(rSMR = as.numeric(substr(Edatopic,2,2)),SNR = substr(Edatopic,1,1))]
 eda <- unique(eda)
 
@@ -124,7 +124,7 @@ rules <- fread("./inputsGit/aSMR_Rules_HalfStep_v11_09Dec2019.csv")
 ```
 
 ```{r clean data}
-SppCurr = "Bl"
+SppCurr = "Ba"
 sibec <- sibec0
 sppAdj <- data.table(read.xlsx("./inputsGit/SI_percent_by_edagrid.xlsx",sheet = SppCurr))
 sppAdj$aSMR <- 0:9
@@ -173,14 +173,15 @@ simax <- simax %>%  filter(!str_detect(simax$BGC, ("BWBS|IDFdw|IDFdk|SBPS|ESSFdc
 
 climSI <- left_join(simax, climDat) %>% dplyr::select(BGC, XSI, DD5, DD18, EXT) #%>% mutate(XSIadj = ifelse (DD5 >= 1100, XSI + ((DD5 - 1100) *.02), XSI))
 
-coastSI <- climSI %>% dplyr::filter(str_detect(BGC, ("CWH|CDF|CMX|MH|MHRF|CVG|CRF|CMA|CWF|CCH|IDFww|ESSFmk"))) %>% 
-  dplyr::filter(!XSI == 28, !XSI == 21,!XSI == 15 ,!XSI == 24)#, "CMX", "MH", "MHRF", "CVG", "CRF")))  #, "CMX", "MH", "MHRF", "CVG", "CRF")))
-interSI<- climSI %>% dplyr::filter(!str_detect(BGC, ("CWH|CDF|CMX|MH|MHRF|CVG|CRF|CMA|CWF|CCH|IDFww|ESSFmk"))) %>% 
-  dplyr::filter(!XSI == 18, !XSI == 21,!XSI == 15 ,!XSI == 24)#, "CMX", "MH", "MHRF", "CVG", "CRF")))
+coast <- "CWH|CDF|CMX|MH|MHRF|CVG|CRF|CMA|CWF|CCH|IDFww|ESSFmk|IWF|OW|ESSFmw"
+coastSI <- climSI %>% dplyr::filter(str_detect(BGC, (coast))) #%>% 
+#  dplyr::filter(!XSI == 28, !XSI == 21,!XSI == 15 ,!XSI == 24)#, "CMX", "MH", "MHRF", "CVG", "CRF")))  #, "CMX", "MH", "MHRF", "CVG", "CRF")))
+interSI<- climSI %>% dplyr::filter(!str_detect(BGC, (coast)))# %>% 
+  #dplyr::filter(!XSI == 18, !XSI == 21,!XSI == 15 ,!XSI == 24,!XSI == 12)#, "CMX", "MH", "MHRF", "CVG", "CRF")))
 
 
-clim_coast <- climDat %>% dplyr::filter(str_detect(BGC, ("CWH|CDF|CMX|MH|MHRF|CVG|CRF|CMA|CWF|CCH|IDFww|ESSFmk"))) %>% dplyr::select(BGC, DD5, DD18, EXT) 
-clim_inter <- climDat %>% dplyr::filter(!str_detect(BGC, ("CWH|CDF|CMX|MH|MHRF|CVG|CRF|CMA|CWF|CCH|IDFww|ESSFmk"))) %>% dplyr::select(BGC, DD5, DD18, EXT) 
+clim_coast <- climDat %>% dplyr::filter(str_detect(BGC, (coast))) %>% dplyr::select(BGC, DD5, DD18, EXT) 
+clim_inter <- climDat %>% dplyr::filter(!str_detect(BGC, (coast))) %>% dplyr::select(BGC, DD5, DD18, EXT) 
 
 ```
 
@@ -191,9 +192,9 @@ pc <- ggplot(coastSI, aes(x = DD5, y = XSI))+
   geom_point() +
   #geom_point(shape = 21, fill = "red", size = 1)+
   geom_jitter(width = 0) +
-  scale_y_continuous(limit = c(0, 82))+
+  scale_y_continuous(limit = c(0, 45))+
      scale_x_continuous(limit = c(0, 5000))+
-    ggtitle(paste0(Spp, " SI50 by DD5 in Coastal BGCs"))+
+    ggtitle(paste0(SppCurr, " SI50 by DD5 in Coastal BGCs"))+
   geom_text (aes(label= BGC), size = 2, hjust = -.1, position = position_dodge(width=1) )+
   #geom_abline(intercept = -11, slope = .042, color = "green")+
   #geom_abline(intercept = -1.86715, slope = .0263, color = "red")+
@@ -217,7 +218,7 @@ pi <- ggplot(interSI, aes(x = DD5, y = XSI))+
   #geom_point(shape = 21, fill = "red", size = 1)+
   geom_jitter(width = 0) +
  # coord_flip()+
-    ggtitle(paste0(Spp, " SI50 by DD5 in Interior BGCs"))+   xlab ("DD5")+
+    ggtitle(paste0(SppCurr, " SI50 by DD5 in Interior BGCs"))+   xlab ("DD5")+
    scale_x_continuous(limit = c(0, 3000))+
   scale_y_continuous(limit = c(0, 45))+
   #geom_segment(aes(x=350, y=0, xend=1100, yend = 28))+
@@ -241,7 +242,7 @@ pall <- ggplot(climSI, aes(x = DD5, y = XSI))+
   #geom_point(shape = 21, fill = "red", size = 1)+
   geom_jitter(width = 0) +
  # coord_flip()+
-    ggtitle(paste0(Spp, " SI50 by DD5 in all BGCs"))+   xlab ("DD5")+
+    ggtitle(paste0(SppCurr, " SI50 by DD5 in all BGCs"))+   xlab ("DD5")+
    scale_x_continuous(limit = c(0, 3000))+
   scale_y_continuous(limit = c(0, 45))+
   #geom_segment(aes(x=350, y=0, xend=1100, yend = 28))+
@@ -351,9 +352,10 @@ suit <- suit[Spp  == SppCurr,.(BGC,SS_NoSpace,Spp,Feasible, Restrict_type)]
 suit <- SIbySS[suit, on = "SS_NoSpace"]
 temp <- sibec[,.(SS_NoSpace,SIBEC2013 = MeanPlotSiteIndex)]
 suit <- temp[suit, on = "SS_NoSpace"]
-suit <- suit[,.(BGC,SS_NoSpace,Spp,Feasible,SIBEC2013,SIPred, aSMRx)] %>% mutate(SIdiff == )
+suit <- suit[,.(BGC,SS_NoSpace,Spp,Feasible,SIBEC2013,SIPred, aSMRx)] %>% mutate(SIdiff = SIPred - SIBEC2013) %>% distinct()
+
 write.csv(suit, paste0("./outputs/", SppCurr, "_estimated_potential_SI.csv"))
-suit2 <- suit %>% dplyr::select(-aSMRx)
+suit2 <- suit %>% dplyr::select(-aSMRx, -SIdiff)
 library(RPostgreSQL)
 dbSafeNames = function(names) {
   names = gsub('[^a-z0-9]+','_',tolower(names))
