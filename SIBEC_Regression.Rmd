@@ -124,7 +124,7 @@ rules <- fread("./inputsGit/aSMR_Rules_HalfStep_v11_09Dec2019.csv")
 ```
 
 ```{r clean data}
-SppCurr = "Ba"
+SppCurr = "Pl"
 sibec <- sibec0
 sppAdj <- data.table(read.xlsx("./inputsGit/SI_percent_by_edagrid.xlsx",sheet = SppCurr))
 sppAdj$aSMR <- 0:9
@@ -180,8 +180,8 @@ interSI<- climSI %>% dplyr::filter(!str_detect(BGC, (coast)))# %>%
   #dplyr::filter(!XSI == 18, !XSI == 21,!XSI == 15 ,!XSI == 24,!XSI == 12)#, "CMX", "MH", "MHRF", "CVG", "CRF")))
 
 
-clim_coast <- climDat %>% dplyr::filter(str_detect(BGC, (coast))) %>% dplyr::select(BGC, DD5, DD18, EXT) 
-clim_inter <- climDat %>% dplyr::filter(!str_detect(BGC, (coast))) %>% dplyr::select(BGC, DD5, DD18, EXT) 
+clim_coast <- climDat %>% dplyr::filter(str_detect(BGC, (coast))) %>% dplyr::select(BGC, DD5, DD18, EXT, DD_0, PAS) 
+clim_inter <- climDat %>% dplyr::filter(!str_detect(BGC, (coast))) %>% dplyr::select(BGC, DD5, DD18, EXT, DD_0, PAS) 
 
 ```
 
@@ -285,7 +285,7 @@ PredictedSI_all <- cbind(climDat, PredictedSI)
   geom_jitter(width = 0) +
   scale_y_continuous(limit = c(0, 45))+
      scale_x_continuous(limit = c(0, 5000))+
-    ggtitle(paste0(SppCurr, " climatic maximum SI50 Predicted  by DD5 in interior BGCs"))+
+    ggtitle(paste0(SppCurr, " climatic maximum SI50 Predicted by DD5 in interior BGCs"))+
   geom_text (aes(label= BGC), size = 2, hjust = -.1, position = position_dodge(width=1) )+
   #geom_abline(intercept = -11, slope = .042, color = "green")+
   #geom_abline(intercept = -1.86715, slope = .0263, color = "red")+
