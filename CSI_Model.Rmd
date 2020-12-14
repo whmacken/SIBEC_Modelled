@@ -5,77 +5,291 @@ date: "10/12/2020"
 output: html_document
 ---
 
+
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE)
 require(plyr)
 require(tidyverse)
-require(dplyr)
 require(forcats)
+require(dplyr)
+require(ggplot2)
+require(magrittr)
+require(foreach)
+require(reshape2)
+require(reticulate)
+require(Rcpp)
+library(data.table)
+library(scales)
+require(rgdal)
+require(tidyverse)
+require(randomForest)
+require(Rcpp)
+require(openxlsx)
+
+calcCMD <- function(CMD, rSMR){
+  diff <- rSMR - 4
+  if(diff > 0){
+    return(CMD/2^diff)
+  }else if(diff < 0){
+    return(CMD + 100*abs(diff))
+  }else{
+    return(CMD)
+  }
+}
+calcCMD_vec <- Vectorize(calcCMD)
+
+cppFunction('NumericVector calcASMR(NumericVector rSMR,NumericVector CMD, DataFrame Rules) {
+  NumericVector rSMRLev = Rules["SMRLevel"];
+  NumericVector CMDctf = Rules["CMD"];
+  NumericVector aSMR = Rules["aSMR"];
+  int len = CMD.length();
+  IntegerVector v;
+  NumericVector out(len);
+  for(int i = 0; i < len; i++){
+    v = Rcpp::seq(0, aSMR.length()-1);
+    if(rSMR[i] < 5){
+      v = v[rSMRLev == 0];
+    }else if(rSMR[i] == 5){
+      v = v[rSMRLev == 5];
+    }else if(rSMR[i] == 6){
+      v = v[rSMRLev == 6];
+    }else{
+      v = v[rSMRLev == 7];
+    }
+    int j;
+    for(j = v[0]; j < v[v.length()-1]; j++){
+      if(CMD[i] <= CMDctf[j]){
+        break;
+      }
+    }
+    out[i] = aSMR[j];
+  }
+  return(out);
+}')
+
+addVars <- function(dat){
+  dat[,`:=`(PPT_MJ = PPT05+PPT06,
+            PPT_JAS = PPT07+PPT08+PPT09,
+            PPT.dormant = PPT_at+PPT_wt)]
+  dat[,`:=`(CMD.def = 500-PPT.dormant)]
+  dat[CMD.def < 0, CMD.def := 0]
+  dat[,`:=`(CMDMax = CMD07,
+            CMD.total = CMD.def +CMD,
+            CMD.grow = CMD05 + CMD06 +CMD07 +CMD08 +CMD09,
+            DD5.grow = DD5_05 + DD5_06 + DD5_07 + DD5_08 + DD5_09,
+            DDgood = DD5 - DD18,
+            DDnew = (DD5_05 + DD5_06 +DD5_07  + DD5_08)  - 
+              (DD18_05 + DD18_06 +DD18_07 +DD18_08),
+            TmaxJuly = Tmax07)]
+
+# remove some redundant variables considered undesireable
+  nms <- as.character(names(dat))
+  toRemove <- c("01", "02", "03", "04", "05", "06","07", "08", "09", "10", "11", "12","Rad","RH")
+  nms <- nms[grep(paste(toRemove,collapse = "|"),nms)]
+  dat[,(nms) := NULL]
+  dat <- dat[CMD != -9999]
+
+  return(dat)
+}
+
+
+```
+This code is designed to create a prior model of site index for the climatic potential SI (CSI) for tree species based on a two-sided Gompertz distribution of Site Index50 by DD5 growing degree day sum. The CSI reflects the maximum SI that a species could attain within a biogeoclimatic unit (BGC) where soil moisture and nutrients are not limiting. For most species fresh/moist and rich/very rich sites represent the sites with 100% potential CSI. Species specific SI50 declines with distance from the optimal site along actual soil moisture and nutrient and can be represented as ratio of CSI. We use the CSI multiplied by the species specific SI ratios for each aSMRxSNR postion  to generate SIBEC estimates in each BGC. An aSMR x rSMR relationship for each BGC links the aSMR specific SI50 to converts the relative grid position of site series. 
+
+The Gompertz function is often used for biological growth models and rises more quickly in the early part of the growth curve (inflection point is 36.79% of the maximum SI asymptote). We combine a Gompertz curve representing increasing SI by DD5 with a mirror image curve representing the declining SI with excessive heat. The shape and slope of these two curves are often different with the growth curve being more gradual than the declining curve. 
+The growth curve begins at the minimum DD5 require for the species, rises to the coordinates where DD5 and the first maximum SI point is reached, and extends along the maximum SI to the coordinates of the last DD5 that supports maximum SI.
+The declining curve begins at the last point of the growth curve and declines to the DD5 where growth is no longer supported. The "excessive" DD5 is correlated with temperature extremes in the interior which likely represent the true limiting temperature factor. On the coast, high DD5 instead represents ocean moderated temperatures and winter growing conditions. For this reason we generate CSI curves separately for coastal and interior BGCs. 
+The curves are created with available and approximated SI50 numbers from SIBEC and published literature values. However, the process is largely heuristic as available SIBEC information is sparse and cannot be used to build a reliable model directly. We plot available maximum SI for a BGC where available but this often does not represent the true maximum (unsampled or approximated). Further more approximated SIBEC values are questionably accurate and climate Surface errors or SIBEC sample locations may misrepresent the true DD5 x SI50 relationship of BGCs. The SIBEC numbers generated from this approach are used in Modern Portfolio Theory models that require complete SIBEC values for all tree species. These curves will represent prior models that will be built into a Bayesian model which will allow them to be improved with subsequent additions of measure SI50 data.
+
+There are 5 variables to feed into the Gompertz function:
+1. The upper limit of DD5 for the graphs. Set to 3000 for interior BGCs and 4000 for coastal BGCs
+2. The maximum recorded SI for each species.
+3. The minimum DD5 required for growth of each species
+4. The DD5 value at which the maximum SI is first attained
+5. The DD5 value after which the SI begins to decline
+6. The DD5 value after which no growth/occurrence of the species is observed
+
+It is likely that there are some DD5 adjustments that can be implemented in some or all cases. Frozen soils in cold climates may retard tree growth in the spring where enough DD5 must have occurred to heat the rooting zone to allow growth. Most likely an effect in the BWBS and SWB.
+In high elevations, excessive snow pack may delay the initiation of growth. Currently there are no good temperature sums in ClimateBC which could represent growth limitations caused by excessive heat,
+
+```{r importData}
+#sibec <- sibec %>% distinct()
+#write.csv(sibec, "./inputsGit/SIBEC_2020_updatesof2013.csv", row.names = FALSE)
+##Set drive with cloud data
+if(dir.exists("C:/users/whmacken/Sync")){
+  cloud_dir <- "C:/users/whmacken/Sync/CCISS_data/CommonTables/"
+}else{
+  cloud_dir <- "C:/Users/kirid/Sync/CCISS_data/CommonTables/"
+}
+
+sibec0 <- fread("./inputsGit/SIBEC_2020_updatesof2013.csv")
+sibec_add <- fread("./inputsGit/SIBEC_2020_Add.csv") ## additional SI Max values added
+sibec_add <- sibec_add %>% dplyr::select(-Source)
+sibec0 <- rbind(sibec0, sibec_add)
+sibec0 <- sibec0[!is.na(MeanPlotSiteIndex),]
+
+
+##load and average climate data
+climDat0 <- fread(paste0(cloud_dir,"WNA_4k_HexPts_BGC_Normal_1961_1990MSY.csv"))
+climDat0 <- addVars(climDat0)
+climDat <- climDat0[,lapply(.SD, mean), by = .(BGC), .SDcols = 6:86] 
+
+climDat2 <-climDat %>% dplyr::select(BGC, CMD.total)
+
+eda <- fread(paste0(cloud_dir,"Edatopic_v11_20.csv"))
+#eda <- eda[is.na(Special),.(BGC,SS_NoSpace,Edatopic)]
+eda[,`:=`(rSMR = as.numeric(substr(Edatopic,2,2)),SNR = substr(Edatopic,1,1))]
+eda <- unique(eda)
+
+rules <- fread("./inputsGit/aSMR_Rules_HalfStep_v11_09Dec2019.csv")
 ```
 
-This code is designed to create a prior model of site index for the climatic maximum SI for tree species based on 
-1. A Gompertz curve for max SI by DD5
-Enter Maximum SI for the species (y axis)
-Displacement is the X-axis displacment (not clear what this actually does)
-max growth rate = y-axis increment at max rate of change
-DD5 is the range of DD5 to model
-
-beginning at the DD5 at which tree growth begins to maximum SI for the species at the DD5 of the BGC which first expresses SImax
-2. The maximum curve then decline by an exponential function.
-
-Inputs are a table with min DD5, max SI, DD5 of maximum 
-
 ```{r build theoretical SI}
- gompertz <- function(DD5_range, maxSI, maxrate, minDD5){
-  y <- maxSI*exp(-exp(maxrate*exp(1)/maxSI*(minDD5- DD5_range)+1))
-  return(data.frame(DD5_range =DD5_range, y=y))
+##Choose Species
+spp <- "Sx"
+c_i <- "i"
+
+ gompertz <- function(DD5_range, maxSI, minDD5, firstmaxDD5,lastmaxDD5, lastDD5 ){
+  maxrate = ((maxSI/(firstmaxDD5 - minDD5))/.38)
+   y <- maxSI*exp(-exp(maxrate*exp(1)/maxSI*(minDD5- DD5_range)+1))
+   #y <- y %>% filter(DD5_range < lastmaxDD5)
+  return(data.frame(DD5_range = DD5_range, y=y))
 }
-Gomp_para <- fread("./inputs/GompertzParametersbySpp.csv")
+Gomp_para <- fread("./inputsGit/GompertzParametersbySpp.csv")
 
 ### each species gets a function that dictates SI by DD5.
 ### the climatic maximum SI for a BGC is calculated from its y value at DD5
-spp <- "Fdi"
-Gomp_para1 <- Gomp_para %>% filter(Spp %in% spp) 
-x <- as.numeric(Gomp_para1[1,c(2:5)])
-spp_CSI1 <- gompertz(1:x[1],x[2],x[3],x[4]) %>% dplyr::rename(gomp1 = y) %>% round(1)## estimate for subalpine fir
+
+Gomp_para1 <- Gomp_para %>% filter(Spp %in% spp) %>% filter(cos_int %in% c_i)
+x <- as.numeric(Gomp_para1[1,c(3:8)])
+spp_CSI1 <- gompertz(1:x[1],x[2],x[3],x[4]) %>% dplyr::rename(CSI = y, DD5 = DD5_range) %>% round(1)%>% filter(DD5 < x[5]) ## estimate for subalpine fir
 plot(spp_CSI1)
 #gompertz distribution by species
     #need to calculate the max rate based on the DD5 at which maxSI is first achieved.
 ### reduction in effective DD5 due to high temperatures sets the SI back along the curve 
-Gomp_para1 <- Gomp_para %>% filter(Spp %in% spp) 
-x <- as.numeric(Gomp_para1[1,c(2:3,6:7)])
+Gomp_para2 <- Gomp_para %>% filter(Spp %in% spp) %>% filter(cos_int %in% c_i)
+x <- as.numeric(Gomp_para2[1,c(3:8)])
 
-spp_CSI2 <- gompertz(1:x[1],x[2],x[3],x[4])%>% dplyr::rename(gomp2 = y) %>% round(1) 
+spp_CSI2 <- gompertz(1:x[1],x[2],x[5],x[6])%>% dplyr::rename(CSI = y, DD5 = DD5_range ) %>% round(1) %>% filter(DD5 < x[6]) %>% mutate(DD5 = abs(DD5 - x[6])) %>% mutate(DD5 = DD5 + x[5])
 plot(spp_CSI2)
-spp_CSI2 <- spp_CSI2 %>% dplyr::select(-DD5_range)
+#spp_CSI2 <- spp_CSI2 %>% dplyr::select(-DD5_range)
 
-spp_CSI <- bind_cols (spp_CSI1, spp_CSI2) %>%  mutate (CSI = gomp1 - gomp2) %>% dplyr::select(DD5_range, CSI)
-spp_CSI$DD5_range <- as.character(spp_CSI$DD5_range)
+spp_CSI <- bind_rows (spp_CSI1, spp_CSI2)# %>%  mutate (CSI = gomp1 - gomp2) %>% dplyr::select(DD5_range, CSI)
 plot(spp_CSI)
+
+ggplot(spp_CSI, aes(DD5,CSI))+
+  geom_point()+ 
+  theme(axis.text.x = element_text(angle = 90, size = 7))
 
 
 ```
+
+
+```{r SI max from SIBEC data}
+sibec <- sibec0
+sppAdj <- data.table(read.xlsx("./inputsGit/SI_percent_by_edagrid.xlsx",sheet = spp))
+sppAdj$aSMR <- 0:9
+sppAdj <- data.table::melt(sppAdj, id.vars = "aSMR", variable.name = "SNR")
+
+MaxSppSI <-  Gomp_para %>% dplyr::select(Spp, maxSI) ## file with highest know SI values by species
+SppMaxSI <- MaxSppSI[MaxSppSI$Sp %in% spp,]
+sibec <- sibec[TreeSpp == spp,]
+sibec[,BGC := gsub("/.*","",SS_NoSpace)]
+
+sibec[,isMax := MeanPlotSiteIndex == max(MeanPlotSiteIndex), by = .(BGC)]
+simax <- sibec[(isMax),] 
+simax <- simax %>% dplyr::rename (XSI = MeanPlotSiteIndex) %>% unique()
+
+##check if max SI values are near max climatic potential (final table is simaxAvg)
+simax2 <- eda[simax, on = "SS_NoSpace"]
+simax2 <- climDat[,.(BGC,CMD.total)][simax2, on = "BGC"]
+simax2 <- simax2[!is.na(CMD.total),]
+simax2[, CMDadj := calcCMD_vec(CMD.total,rSMR)]
+simax2[, aSMR := calcASMR(rSMR,CMDadj,rules)]
+simax2[, aSMR := round(aSMR, digits = 0)]
+
+simax2 <- sppAdj[simax2, on = c("aSMR","SNR")]
+simaxAvg <- simax2[,.(BGC,XSI,PropMax = mean(as.numeric(value))), by = .(SS_NoSpace)]
+simaxAvg <- unique(simaxAvg)
+
+toRemove <- simaxAvg[PropMax < 0.6, SS_NoSpace]
+simax <- simax[!SS_NoSpace %in% toRemove,]
+
+```
+
+```{r climate data by BGC}
+climSI <- left_join(simax, climDat) %>% dplyr::select(BGC, XSI, DD5, DD18, EXT, DD_0, PAS) #%>% mutate(XSIadj = ifelse (DD5 >= 1100, XSI + ((DD5 - 1100) *.02), XSI))
+###DD5 adjustments
+climSI <- climSI %>% mutate(DD_0 = (DD_0 - 1750))## reduce DD5 as a function of cold soils
+climSI <- climSI %>%  mutate(PAS = (PAS/5))## reduce DD5 as function of deep snow
+climSI$DD_0 <- ifelse(climSI$DD_0 <0, 0, climSI$DD_0) 
+climSI <- climSI %>% distinct() %>%  mutate(DD5 = DD5 - DD_0)    #%>% mutate(DD5 = DD5 - PAS)%>% mutate(DD5 = DD5 + (DD18*10))
+climSI$DD5 <- climSI$DD5  %>% round_any(10) 
+coast <- "CWH|CDF|CMX|MH|MHRF|CVG|CRF|CMA|CWF|CCH|IDFww|IWF|OW|ESSFmw"#ESSFmk|
+if(c_i == "c"){
+climSI <- climSI %>% dplyr::filter(str_detect(BGC, (coast)))
+} #%>% 
+if(c_i == "i"){
+climSI<- climSI %>% dplyr::filter(!str_detect(BGC, (coast)))
+}#
+
+
+```
+
+```{r}
+
+climSI2 <- climSI %>% dplyr::select(BGC, XSI, DD5)
+climSI2$DD5 <- climSI2$DD5 %>% round(0)
+spp_CSI2 <- left_join(spp_CSI, climSI2, by = "DD5")
+
+
+##add in spp SI by DD5 from data and add to theoretical distribution and then adjust.
+pall <- ggplot(spp_CSI2, aes(x = DD5, y = CSI, label = BGC))+
+  geom_point() +
+  #geom_point(shape = 21, fill = "red", size = 1)+
+  geom_jitter(width = 0) +
+ # coord_flip()+
+    ggtitle(paste0(spp, " SI50 by DD5 in all BGCs"))+   xlab ("DD5")+
+   scale_x_continuous(limit = c(0, 3000))+
+  scale_y_continuous(limit = c(0, 45))+
+  #geom_segment(aes(x=350, y=0, xend=1100, yend = 28))+
+  #geom_abline(intercept = -11, slope = .042, color = "green")+
+  #geom_abline(intercept = -1.86715, slope = .0263, color = "red")+
+  geom_hline(yintercept = (Gomp_para1$maxSI), linetype="dashed", color = "red")+
+  geom_point(aes(x = DD5, y = XSI), shape = 12, color = "blue")+
+    geom_text(aes(x = DD5, y = XSI, label= BGC) , size = 4, hjust = -.1, vjust = .1, position = position_jitter(width=2, height=2))
+
+plot(pall)
+
+```
+
+
+
+TEST Code
 
 ```{r compare to BGC data}
 allDat <- fread("D:/CommonTables/Climate_Data/ALLWNAv11_AllVars.csv", data.table = FALSE, stringsAsFactors = FALSE) ###Climate data 1961-90for representative points per BGC  with all variables
 allDat <- allDat[!(allDat$DD5 == -9999),] %>% mutate_if(is.integer, as.numeric)
 allDat$BGC <- as.factor(allDat$BGC)
 
-coastDat <- allDat %>% dplyr::filter(str_detect(BGC, ("CWH|CDF|CMX|MH|MHRF|CVG|CRF|CMA|CWF|CCH")))#, "CMX", "MH", "MHRF", "CVG", "CRF")))
-interDat <- allDat %>% dplyr::filter(!str_detect(BGC, ("CWH|CDF|CMX|MH|MHRF|CVG|CRF|CMA|CWF|CCH"))) %>% dplyr::filter(!(BGC== "MSSD")) %>% 
-  dplyr::select(BGC, DD5, DD_0) %>% droplevels()
+climDat <- allDat %>% dplyr::filter(str_detect(BGC, ("CWH|CDF|CMX|MH|MHRF|CVG|CRF|CMA|CWF|CCH"))) %>% 
+  dplyr::select(BGC, DD5, DD_0, PAS) %>% droplevels()#, "CMX", "MH", "MHRF", "CVG", "CRF")))
+#climDat <- allDat %>% dplyr::filter(!str_detect(BGC, ("CWH|CDF|CMX|MH|MHRF|CVG|CRF|CMA|CWF|CCH"))) %>% dplyr::filter(!(BGC== "MSSD")) %>% 
+#  dplyr::select(BGC, DD5, DD_0) %>% droplevels()
 #, "CMX", "MH", "MHRF", "CVG", "CRF")))
 
-BGC_DD5 <- setDT(interDat)[ , .(mean_DD5 = mean(DD5)), by = BGC] 
-BGC_DD0 <- setDT(interDat)[ , .(mean_DD0 = mean(DD_0)), by = BGC] %>%  mutate(mean_DD0 = (mean_DD0 - 1000)/5)
+BGC_DD5 <- setDT(climDat)[ , .(mean_DD5 = mean(DD5)), by = BGC] 
+BGC_DD0 <- setDT(climDat)[ , .(mean_DD0 = mean(DD_0)), by = BGC] %>%  mutate(mean_DD0 = (mean_DD0 - 1000))
+BGC_PAS <- setDT(climDat)[ , .(mean_PAS = mean(PAS)), by = BGC] %>%  mutate(mean_PAS = (mean_PAS/10))
 BGC_DD0$mean_DD0 <- ifelse(BGC_DD0$mean_DD0 <0, 0, BGC_DD0$mean_DD0) ## reduce DD5 as a function of cold soils
 BGC_DD5 <- left_join(BGC_DD5,BGC_DD0 ) %>% mutate(mean_DD5 = mean_DD5 - mean_DD0)
+BGC_DD5 <- left_join(BGC_DD5,BGC_PAS ) %>% mutate(mean_DD5 = mean_DD5 - mean_PAS) ## reduce DD5 as function of deep snow
 BGC_DD5$mean_DD5 <- BGC_DD5$mean_DD5 %>% round_any(10) %>% as.character()
 
 
 BGC_SI <- left_join(BGC_DD5, spp_CSI, by = c("mean_DD5" = "DD5_range")) %>% distinct() %>% dplyr::select(-mean_DD5) %>% mutate_if(is.character, as.numeric) %>% arrange(CSI) %>% droplevels() %>%  mutate(BGC= fct_reorder(BGC, CSI)) %>% mutate(SIcat = "" ) %>% if_na(0)
 ###SI thresholds
-x <- as.numeric(Gomp_para1[1,c(8:12)])
+x <- as.numeric(Gomp_para1[1,c(11:15)])
 
 BGC_SI$SIcat  <- ifelse(BGC_SI$CSI<=x[1], "0nil",
                         ifelse(BGC_SI$CSI>x[1] & BGC_SI$CSI<=x[2], "1vlow",
@@ -89,8 +303,6 @@ ggplot(BGC_SI, aes(BGC,CSI))+
   facet_wrap(.~ SIcat, scales='free', shrink = FALSE, ncol = 2)
 
 ```
-
-
 
 ```{r fit gompertz}
 fit.gompertz <- function(data, time){
