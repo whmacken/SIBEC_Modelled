@@ -124,7 +124,7 @@ finalDat <- merge(climVars,SSVars,by = "SS_NoSpace", all.x = T)
 # colnames(finalDat) <- c("Unit", "BGC", "Spp", "ESuit", "CMD", "FFP", "Eref_sm", 
 #                         "MCMT", "SHM", "TD", "PAS", "DD5_sp", "MSP", "aSMR_min", "SNR_num_min", "EdaCMD_min",  
 #                         "aSMR_mean","SNR_num_mean", "EdaCMD_mean", "aSMR_max", "SNR_num_max","EdaCMD_max")
-fwrite(finalDat,"BartInputDat.csv")
+fwrite(finalDat,"./outputs/BartInputDat.csv")
 
 ######################################################################################################
 
