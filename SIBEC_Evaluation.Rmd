@@ -20,6 +20,7 @@ require (ggplot2)
 require (assertr)
 require(data.table)
 require(tinytex)
+require(DBI)
 ```
 
 ##Import Vtrees data
@@ -27,6 +28,10 @@ require(tinytex)
 Read in SIBEC data from a .csv table export of a _Trees table from the VTrees database
 
 ```{r Vtrees data import}
+sibec_master <- dbConnect(odbc::odbc(), .connection_string = "Driver={Microsoft Access Driver (*.mdb, *.accdb)}; DBQ=F:/OneDrive - Government of BC/SIBEC/SIBEC_2022_Provincial_WHM.accdb;")
+SI_raw  <- dbReadTable(sibec_master, "SIBEC_Analysis_Data")
+dbDisconnect(sibec_master)
+
 #SI_raw <- fread("./SI_Prediction/SIBEC_SBSmc2_2019_Trees.csv") ##v1 recalcuated SI using Count Age and TotalHtCalc
 SI_raw <- fread("./SI_Prediction/SBS_mc2_Trees_new.csv") ##v2 Use the AgeBH where available - gets rid of some outliers. Sx starts looking better 
 #SI_explore <- fread("SBSmc2_SI_Cleaned.csv")
