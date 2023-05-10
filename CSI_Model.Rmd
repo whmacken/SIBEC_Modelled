@@ -116,8 +116,8 @@ In high elevations, excessive snow pack may delay the initiation of growth. Curr
 #sibec <- sibec %>% distinct()
 #write.csv(sibec, "./inputsGit/SIBEC_2020_updatesof2013.csv", row.names = FALSE)
 ##Set drive with cloud data
-if(dir.exists("C:/users/whmacken/Sync")){
-  cloud_dir <- "C:/users/whmacken/Sync/CCISS_data/CommonTables/"
+if(dir.exists("E:/Sync")){
+  cloud_dir <- "E:/Sync/CCISS_data/CommonTables/"
 }else{
   cloud_dir <- "C:/Users/kirid/Sync/CCISS_data/CommonTables/"
 }
@@ -136,7 +136,7 @@ climDat <- climDat0[,lapply(.SD, mean), by = .(BGC), .SDcols = 6:86]
 
 climDat2 <-climDat %>% dplyr::select(BGC, CMD.total)
 
-eda <- fread(paste0(cloud_dir,"Edatopic_v11_20.csv"))
+eda <- fread(paste0(cloud_dir,"Edatopic_v11_22.csv"))
 #eda <- eda[is.na(Special),.(BGC,SS_NoSpace,Edatopic)]
 eda[,`:=`(rSMR = as.numeric(substr(Edatopic,2,2)),SNR = substr(Edatopic,1,1))]
 eda <- unique(eda)
@@ -341,8 +341,10 @@ You can also embed plots, for example:
 ```{r pressure, echo=FALSE}
 ##Here is an example of the R-code I used to fit Gompertz model to my data (number of cases of Ebola in Liberia):
 ################################### ### GOMPERTZ
-alpha = 9526 beta = 9.1618 k = 0.0028
-nls.gompertz <- minpack.lm::nlsLM(data$cases ˜ alpha*exp(-beta*exp(-k*data$days)), data = data, start = list(alpha = alpha, beta = beta, k = k), control = list(maxiter = 500))
+alpha = 9526 
+beta = 9.1618 
+k = 0.0028
+nls.gompertz <- minpack.lm::nlsLM(data$cases, alpha*exp(-beta*exp(-k*data$days)), data = data, start = list(alpha = alpha, beta = beta, k = k), control = list(maxiter = 500))
 coef(nls.gompertz) ## alpha = 9437, beta = 59.24, k = 0.0219
 ## Now fit Geompertz model
 growth.gompertz <- growthmodels::gompertz(data$days, alpha = coef(nls.gompertz)[["alpha"]], beta = coef(nls.gompertz)[["beta"]], k = coef(nls.gompertz)[["k"]])
