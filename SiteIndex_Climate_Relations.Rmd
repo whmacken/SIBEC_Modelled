@@ -106,7 +106,9 @@ write.csv (CMD, "./outputs/CMD_by_rSMR.csv")
 The development of a seamless climate surface for British Columnbia with Climatic Moisture Deficit presented an opportunity for linking aSMR as defined by AET/PET ratio to the climate moisture deficit. Since the zonal site is thought to best reflect climatic conditions a comparison of the CMD range reprenting each of the aSMR classes as defined in the 1990 expert grid was used to define some initial CMD ranges that represent each class. Errors in aSMR assignment and in the Climate Surface are both likley but in aggregate believed to be generally accurate.
 ### Boxplot of CMD ranges by expert rSMR4 class for creation of initial CMD ranges and ID of BGC outliers. A aSMR class of '5' = FRESH
 
-```{r box plot of climate variable by BGC, echo=FALSE, message = FALSE, fig.width=11,fig.height=50,fig.cap="\\label{fig:figs} Climate values by BGC"}
+```{r box plot of climate variable by BGC, echo=FALSE, message = FALSE}
+##fig.width=11,fig.height=50,fig.cap="\\label{fig:figs} Climate values by BGC"
+
 require(forcats)
 require(stringr)
 
@@ -168,7 +170,7 @@ pc <- ggplot(coastDat, aes(x = fct_reorder(ID2, DD5), y = DD5))+
 #ggsave("./outputs/CMD_ranges.png", plot = p, dpi = "print", device = "png", width = 15, height = 15, units = "cm")
 plot(pc)
 
-pi <- ggplot(interDat, aes(x = fct_reorder(ID2, DD5), y = DD18))+
+pi <- ggplot(interDat, aes(x = fct_reorder(ID2, DD5), y = DD5))+
   geom_boxplot() +
   #geom_point(shape = 21, fill = "red", size = 1)+
   #geom_jitter(width = 0) +
