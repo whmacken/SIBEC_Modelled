@@ -1,0 +1,179 @@
+---
+title: "Looking to model climatic potential"
+author: "William H MacKenzie"
+date: "13/12/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tcltk)
+library(reshape2)
+library(foreach)
+library(ggplot2)
+library(dplyr)
+library(magrittr)
+library(data.table)
+library(gridExtra)
+library(mgcv)
+library(rgl)
+library(deldir)
+library(openxlsx)
+library(stringr)
+require(DBI)
+require(data.table)
+
+changeNames <- function(x, old, new){
+  result <- vector("numeric", length(x))
+  for (i in 1:length(x)){
+    code <- x[i]
+    index <- match(code, old)
+    result[i] <- new[index]
+  }
+  return(result)
+}
+
+```
+
+## Read in an analysis data set from SIBEC2022
+
+```{r read in data}
+###########Create full SIBEC Predict Data set from BART model###########
+sibec_master <- dbConnect(odbc::odbc(), .connection_string = "Driver={Microsoft Access Driver (*.mdb, *.accdb)}; DBQ=F:/OneDrive - Government of BC/SIBEC/SIBEC_2022_Provincial_WHM.accdb;")
+sibec  <- dbReadTable(sibec_master, "SIBEC_Analysis_Data")
+dbDisconnect(sibec_master)
+sibec  <- sibec %>% mutate(BGC = paste0(Zone, SubZone), SNR = toupper(NutrientRegime)) %>% as.data.table
+load("./inputs/rSMR_aSMR_CalcList.RData")
+ASMR <- aSMR_rSMR.long %>% as.data.table
+ASMR$rSMR <- str_remove(ASMR$rSMR, "rSMR")
+setkey(sibec, BGC, MoistureRegime)
+setkey(ASMR, BGC, rSMR)
+setDT(sibec)[ASMR, aSMR := aSMRC]
+
+```
+#Explore by BGC
+```{r}
+sibec2 <- sibec %>% filter(Species == "Cw") %>% select(Species, BGC, SI50, aSMR, MoistureRegime, SNR) %>% group_by(BGC) %>% mutate(maxSI = max(SI50)) %>% 
+  mutate(SIfraction = SI50/maxSI)
+sibec3 <- sibec2 %>% group_by(BGC, aSMR, SNR) %>% 
+  summarise(maxSIfraction = max(SIfraction, na.rm = TRUE), maxSI2 = max(maxSI, na.rm = TRUE), numbersites = n())
+```
+
+##Plot SI by DDF for each species for fresh and rich sites
+```{r look at max SI by DD5}
+smr_max <- c(5.5,5, 4.5)#, 0, 0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5  )6,  
+snr_max <- c( "D")#"A", "B", "C","D", 
+bgcs <- c("CDF", "CWH", "MH")
+sibec_max <- sibec %>% as.data.frame %>% filter(aSMR %in% smr_max, NutrientRegime %in% snr_max, !Zone %in% bgcs )
+
+ggplot(sibec_max, aes(DD5, SI50, color = NutrientRegime)) + geom_point() + facet_wrap(~ Species)
+
+```
+
+##Create SI models for each species####
+
+```{r pressure, echo=FALSE}
+
+
+#####Pull in climatic and site data for each siteseries species in sibecOrig (pull from suitability script)
+SSSuit_Data <- finalDat
+#Harmonize the species labelling in both data sets. Sx for all interior spruce, Pl, Cw, Fd
+SSSuit_Data$Spp <- dplyr::recode(SSSuit_Data$Spp, Cwc="Cw", Fdc = "Fd", Se = "Sx", Sw = "Sx", Plc = "Pl", Bgc = "Bg")
+sibecOrig$TreeSpp <- dplyr::recode(sibecOrig$TreeSpp, Cwc="Cw", Fdc = "Fd", Se = "Sx", Sw = "Sx", Plc = "Pl", Bgc = "Bg")
+
+########## create 2 merged data sets. One where site index data is available and one where it is not.
+# SS_wSibec <- sibecOrig [(sibecOrig$PlotCountSpp > 0),]
+# SS_wSibec <- na.omit (SS_wSibec)
+
+SS_wSibec <- sibecOrig
+SS_SI <- SS_wSibec [,c(9,5,7) ]
+colnames (SS_SI) [1:3] <- c("Unit", "Spp", "SI")
+SS_SI2 <- merge (SS_SI, SSSuit_Data, by = c("Unit","Spp"))
+SS_SI2 <- distinct(SS_SI2)
+Spp_count2 <- SS_SI2 %>%
+  group_by(Spp) %>%
+  summarise(count = n())
+
+
+Spp.list <- Spp_count2$Spp[Spp_count2$count > 10] %>% as.character()###list of species where there are more than 5 values
+SS_SI2 <- SS_SI2[!is.na(SS_SI2$SI),]
+###No sibec data - SHould be all site series. Where species does not occur then Site Index is 0
+# SS_noSibec <- sibecOrig [is.na(sibecOrig$PlotCountSpp),]
+# SS_SInew <- SS_noSibec [,c(9,5,7) ]
+# colnames (SS_SInew) [1:3] <- c("Unit", "Spp", "SI")
+# SS_SInew2 <- merge (SS_SInew, SSSuit_Data, by = c("Unit","Spp"))
+# SS_SInew2 <- distinct(SS_SInew2)
+# ###ignore warning
+# #######################
+# ###Then build regression model for each species and predict SI for places where values
+```
+
+```{r build regression model}
+library(rJava)
+options(java.parameters = "-Xmx10000m")
+library(bartMachine)
+set_bart_machine_num_cores(5)
+
+
+BFMods <- foreach(Spp = Spp.list, .combine = c)  %do% {
+  SI_Spp <- SS_SI2 [(SS_SI2$Spp %in% Spp), ]
+  SI_Spp <- SI_Spp[,-c(4,1,2,5)]
+  rownames(SI_Spp) <- NULL
+  
+  bF.fit <- bartMachine(SI_Spp[,-1],SI_Spp$SI, k = 2, nu = 3, q = 0.99, num_trees = 200)
+  list(bF.fit)
+}
+
+names(BFMods) <- Spp.list
+save(BFMods, file = "BFModels.RData")
+
+testDat <- unique(finalDat)
+bartSIPred <- foreach(Spp = Spp.list, .combine = rbind) %do% {
+  szUns <- unique(testDat$BGC[testDat$Spp == Spp]) %>% as.character()
+  testAll <- testDat[testDat$BGC %in% szUns,-(2:4)] %>% unique()
+  mod <- BFMods[[Spp]]
+  test <- testAll[,mod$training_data_features]
+  out <- data.frame(Unit = testAll$Unit, aSMR = testAll$aSMR_mean, SIPred = predict(mod, new_data = test))
+  out$Spp <- Spp
+  ##cbind(out[,c("SIPred","Spp")],testAll)
+  out
+}
+
+bartSIPred <- merge(bartSIPred, sibecOrig[,c(9,5,7)], by.x = c("Unit","Spp"), by.y = c("SS_NoSpace","TreeSpp"), all.x = T)
+bartSIPred <- merge(bartSIPred, suitTbl, by = c("Unit","Spp"), all.x = T)
+bartSIPred <- unique(bartSIPred)
+write.csv(bartSIPred[,c("Unit","Spp","SIPred","aSMR")], "BartPredSI.csv", row.names = F)
+
+SI_Spp$PredSI <- predict(rF.fit, SI_Spp[,-c(1)])
+SI_Pred <- merge(SI_Units, SI_Spp[,c(1,20)], by = 0)
+
+SI_Sppnew <- SS_SInew2 [(SS_SInew2$Spp %in% Spp), ]
+SI_Unitsnew <- SI_Sppnew[, c(4,1,2,5)]
+SI_Sppnew <- SI_Sppnew[, -c(4,1,2,5)]
+SI_Sppnew$PredSI <- predict(rF.fit, SI_Sppnew[,-c(1)])
+SI_Prednew <- merge(SI_Unitsnew, SI_Sppnew[,c(1,20)], by = 0)
+SI_Pred2 <- rbind (SI_Pred, SI_Prednew)
+SI_Pred2
+```
+
+##model testing
+```{r model testing}
+SI_PredAll <- foreach(Spp = Spp.list, .combine = rbind)  %do% {
+  options(stringsAsFactors = FALSE)
+  SI_Spp <- SS_SI2 [(SS_SI2$Spp %in% Spp), ]
+  SI_Spp <- SI_Spp[,-c(4,1,2,5)]
+  rownames(SI_Spp) <- NULL
+  ind <- sample(rownames(SI_Spp), size = nrow(SI_Spp)/3)
+  test <- SI_Spp[ind,]
+  train <- SI_Spp[!rownames(SI_Spp) %in% ind,]
+  
+  # rF.fit <- randomForest(SI ~ .,data=train, nodesize = 2, 
+  #                        do.trace = 10, ntree=201, na.action=na.fail, importance=TRUE, proximity=TRUE)
+  
+  bF.fit <- bartMachine(train[,-1],train$SI, k = 2, nu = 3, q = 0.99, num_trees = 200)
+  
+  test$BFPred <- predict(bF.fit, test[,-1])
+  test$Spp <- Spp
+  test
+}
+```
