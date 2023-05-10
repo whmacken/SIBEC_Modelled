@@ -1,0 +1,147 @@
+---
+title: "Growth curve analysis and plotting with R"
+output:
+  html_document: default
+  html_notebook:
+    theme: flatly
+  pdf_document: default
+---
+
+Angel Angelov | angelov@tum.de | 2017<br>
+based on the Growthcurver package by Sprouffske et. al.<br>
+https://www.ncbi.nlm.nih.gov/pubmed/27094401
+<br>
+<br>
+This tutorial shows how to fit the logistic equation to microbial growth curve data (using the `growthcurver` package) and how to visualize the growth curves in R. <br>
+
+#Part 1. Logistic regression with `Growthcurver`
+Load required libraries, and evt. first install the Growthcurver package by running `install.packages("growthcurver")`.
+
+```{r}
+library(dplyr)
+library(reshape2)
+library(ggplot2)
+library(growthcurver)
+library(purrr)
+```
+<br>
+Read in a tab-delimited text file with the following format -> first column is `time`, second and further columns are the samples (wild type, mutants, treatments...). It is important that the decimal separator is a `.` Change the code below  accordingly if you use `,` as a separator. Also, if you have hours as `time` units you will of course get all calculations in hours later (like doubling time and the growth rate constant). If you have replicates, i.e. several measurements for one timepoint, just put them all in the column for the respective sample. In the example file there are for example replicates for the different timepoints, important is that each sample gets one column, in my case "wt", "ope" and "dole" are the samples.
+ 
+```{r}
+df <- read.csv(file.choose(), header = TRUE, sep = "\t", dec = ".")
+```
+<br>
+Check how the file looks like after reading in R and take a look at the data points of the growth curve, in this case I plot the `wt` sample, which is in column 2 of the example file
+```{r}
+ggplot(df, aes(x = time, y = wt)) + geom_point(alpha=0.7)
+```
+In this case, I am going to use the data up to 40 hours, shoud give a better fit to the logistic function. Followed by a simple call of the `growthcurver` package 
+```{r}
+df <- df %>% filter(time<=40)
+model.wt <- SummarizeGrowth(df$time, df$wt)
+```
+Now the model for the `wt` sample is written to `model.wt`. From there, it is easy to obtain all the summary metrics of the fit
+```{r}
+model.wt$vals # gives you all the values (the growth rate etc. See the Growthcurver manual for more info)
+predict(model.wt$model) # gives you the predicted OD values (according to the model)
+```
+We can see that the logistic regression fit gives a growth rate constant (`r`) of `0.415` with a `SE` of `0.045`. More info what all the values mean can be found in the `Growthcurver` vignette.
+
+In the `Growthcurver` package there is a function for running the fit on many samples, called `SummarizeGrowthByPlate`. This function writes the values of the fitting in a `data.frame`, where each row is a sample and the columns are the obtained values. You can easily write this `data.table` to a *.csv file for further use.
+```{r}
+growth.values.plate <- SummarizeGrowthByPlate(df)
+write.csv2(growth.values.plate, file="growth-values-plate.tab")
+```
+In case you want plots of all the samples, call `SummarizeGrowthByPlate` with the `plot_fit = TRUE` argument. Also, I have made some modifications to this function in order to get more statistics about the fit and produce better plots. You can download the modified script , called `SummarizeGrowthByPlateAA` here and run it.
+
+#Part 2. Plotting
+Here, you have two options:
+
+1. The easy one is to just use the basic plotting functions of `R`, which you can run directly on the generated model:
+```{r}
+plot(model.wt)
+```
+This is not so nice, and there are not many options to change how it looks.
+
+2. Now the more interersting part - how to make nice plots with `ggplot2`. First I will make a plot of the raw data only (without the model fitting) and save it to `p1`. 
+```{r}
+p1 <- ggplot(df, aes(x=time,y=wt)) + geom_point(alpha=0.5) + theme_bw()
+p1
+```
+
+If you want to put the predicted values from the logistic regression on the plot above, you will have to get them using `predict`  and add them to a new datatable. After that just add another `geom` for the predicted values.
+
+```{r}
+df.predicted <- data.frame(time = df$time, pred.wt = predict(model.wt$model))
+p1 + geom_line(data=df.predicted, aes(y=df.predicted$pred.wt), color="red")
+```
+
+#Part 3. Plotting many samples
+Here again, two options:
+
+1. Use the basic R plotting function, i.e. run the `SummarizeGrowthByPlate` or my modified version `SummarizeGrowthByPlateAA` with the `plot_fit = TRUE` argument. A pdf file will be generated with all the plots in your project directory. The plotting here is amenable to modfication, but is somewhat complicated.
+2. If you have a lot of samples and want to do the plotting with `ggplot2`, you need to obtain the complete model data for each sample so that you can add the predicted values from the model to the plot. This means you have to run `SummarizeGrowth` on many samples (`SummarizeGrowthByPlate` will not work here, or at least has to be modified heavily to write the predicted "OD" values somewhere). 
+In order to get the complete models for all samples I am using some `lapply` magic: first define a function, I name it `summG` here, and then use it in `lapply` to run `SummarizeGrowth` on any number of columns:
+```{r}
+summG <- function(x) {SummarizeGrowth(df$time,x)}
+lapply(df[2:ncol(df)], summG)
+```
+This needs some explanation, I guess. `SummarizeGrowth` needs 2 arguments - 1) the name of the column for time, here `df$time` and 2) the name of the column with the "OD" values for one sample, for example this was `df$wt` before. In order to do this for many samples, and avoiding `for` loops typical for some other languages, I am using vectorizing, a very common approach in `R`. Put shortly, I use `lapply` to apply a function to all the variables in a dataframe and return the results in a list. So in the `lapply` call here I am running the function `summG` for all the variables of the `df` (without the first one which is the time): `df[2:ncol(df)`.
+Of course, this can be further improved by defining the `summG` function within the `lapply` call, and writing all models to a list like this:
+```{r}
+models.all <- lapply(df[2:ncol(df)], function(x) SummarizeGrowth(df$time, x))
+```
+
+Now the models for all samples are written in `models.all`. We can take the predicted "OD" values from there and add them to a new dataframe called `df.predicted.plate`. This time I am using a `for` loop:)
+```{r}
+df.predicted.plate <- data.frame(time = df$time)
+for (i in names(df[2:ncol(df)])) 
+  {df.predicted.plate[[i]] <- predict(models.all[[i]]$model)}
+```
+
+In case there are NA values in the columns, change the last two commands like this:
+```{r}
+models.all <- lapply(df[2:ncol(df)], function(x) SummarizeGrowth(df[!is.na(x), 1], x[!is.na(x)]))
+
+df.predicted.plate <- data.frame(time = df$time)
+for (i in names(df[2:ncol(df)])) 
+  {df.predicted.plate[[i]] <- predict(models.all[[i]]$model, newdata = list(t = df$time))}
+```
+Note that in order for `predict` to work, the new data supplied (time in this case) has to be named like in the model, hence the `list(t = df$time)`.
+
+Then I melt the two dataframes, `df` (the one with the measured OD values) and `df.predicted.plate` (the one with the predicted OD values), and merge them together. The `melt` is required for easier plotting in `ggplot2` later.
+```{r}
+melt1 <- melt(df, id.vars = "time", variable.name = "sample", value.name = "od")
+melt2 <- melt(df.predicted.plate, id.vars = "time", variable.name = "sample", value.name = "pred.od")
+df.final <- cbind(melt1, pred.od=melt2[,3])
+rm(melt1)
+rm(melt2)
+```
+
+Now the plots. Note how I have set the `facet_wrap` number of columns to `12`. This is in case you want to plot a whole plate, will translate to plots organized in 12 columns and 8 rows. You can of course adjust the `facet_wrap` as you wish with `ncol =` and `nrow=`.
+```{r, echo=TRUE}
+ggplot(df.final, aes(x=time, y=od)) + geom_point(aes(), alpha=0.5) + geom_line(aes(y=pred.od), color="red") + facet_wrap(~sample, ncol = 12) + theme_bw()
+```
+When you are happy with what comes out, don't forget to save the plots.
+
+If you want to get a table with all the values for all the samples:
+```{r}
+
+vals_df <- map(models.all, "vals") %>% map_df(bind_rows, .id = "sample")
+write.csv(vals_df, file = "output-predicted-values.csv")
+```
+
+
+Enjoy!
+
+AA
+
+PS
+As with any model, one can supply new data and let the model predict the outcome. In this imagenary case we can supply new time points and let the model predict the OD values. I used this approach above in order to deal with the NA values.
+```{r}
+tt <- seq(0,10, length=66)
+predict(model.wt$model,newdata=list(t=tt))
+```
+
+
+
