@@ -19,6 +19,7 @@ library(stringr)
 library(Rcpp)
 
 cloud_dir <- "F:/OneDrive - Government of BC/CCISSv12/latest_CCISS_tool_files/"
+cloud_dir <- "~/latest_CCISS_tool_files/"
 
 changeNames <- function(x, old, new){
   result <- vector("numeric", length(x))
@@ -141,6 +142,8 @@ Spp_count2 <- SS_SI2 %>%
 
 Spp.list <- Spp_count2$SppVar [Spp_count2$count >10] %>%  na.omit()###list of species where there are more than 5 values
 SS_SI2 <- SS_SI2[!is.na(SS_SI2$SI),]
+SS_SI2 <- as.data.table(SS_SI2)
+
 ###No sibec data - SHould be all site series. Where species does not occur then Site Index is 0
 # SS_noSibec <- sibecOrig [is.na(sibecOrig$PlotCountSpp),]
 # SS_SInew <- SS_noSibec [,c(9,5,7) ]
@@ -152,39 +155,40 @@ SS_SI2 <- SS_SI2[!is.na(SS_SI2$SI),]
 # ###Then build regression model for each species and predict SI for places where values
 gc()
 library(rJava)
-options(java.parameters = "-Xmx8000m")
+options(java.parameters = "-Xmx32000m")
 #options(java.parameters = "-Xmx12500m")
 library(bartMachine)
-set_bart_machine_num_cores(5)
+set_bart_machine_num_cores(12)
 ####model testing
-Spp.list <- c('At', 'Ba')#, "Bl", "Cw",  "Dr",  "Ep", "Fdc")#     "Fdi" "Hw"  "Lw"  "Pli" "Pyi" "Sb"  "Ss"  "Sx" )
-SI_PredAll <- foreach(spp = Spp.list, .combine = rbind)  %do% {
-  options(stringsAsFactors = FALSE)
-  SI_Spp <- SS_SI2 [(SS_SI2$SppVar %in% spp), ]
-  SI_Spp <- SI_Spp[,-c(4,2,5)] #1
-  rownames(SI_Spp) <- NULL
-  ind <- sample(rownames(SI_Spp), size = nrow(SI_Spp)/3)
-  test <- SI_Spp[rownames(SI_Spp) %in% ind,]
-  train <- SI_Spp[!rownames(SI_Spp) %in% ind,]
-  
-  # rF.fit <- randomForest(SI ~ .,data=train, nodesize = 2, 
-  #                        do.trace = 10, ntree=201, na.action=na.fail, importance=TRUE, proximity=TRUE)
-  
-  train <- as.data.frame(train)
-  bF.fit <- bartMachine(train[,-1],train$SI, k = 2, nu = 3, q = 0.99, num_trees = 200)
-  test <- as.data.frame(test)
-  test$BFPred <- predict(bF.fit, test[,-1])
-  test$SppVar <- spp
-  test
-}
-SS_SI2 <- as.data.table(SS_SI2)
+# Spp.list <- c('At', 'Ba')#, "Bl", "Cw",  "Dr",  "Ep", "Fdc")#     "Fdi" "Hw"  "Lw"  "Pli" "Pyi" "Sb"  "Ss"  "Sx" )
+# SI_PredAll <- foreach(spp = Spp.list, .combine = rbind)  %do% {
+#   options(stringsAsFactors = FALSE)
+#   SI_Spp <- SS_SI2 [(SS_SI2$SppVar %in% spp), ]
+#   SI_Spp <- SI_Spp[,-c(4,2,5)] #1
+#   rownames(SI_Spp) <- NULL
+#   ind <- sample(rownames(SI_Spp), size = nrow(SI_Spp)/3)
+#   test <- SI_Spp[rownames(SI_Spp) %in% ind,]
+#   train <- SI_Spp[!rownames(SI_Spp) %in% ind,]
+#   
+#   # rF.fit <- randomForest(SI ~ .,data=train, nodesize = 2, 
+#   #                        do.trace = 10, ntree=201, na.action=na.fail, importance=TRUE, proximity=TRUE)
+#   
+#   train <- as.data.frame(train)
+#   bF.fit <- bartMachine(train[,-1],train$SI, k = 2, nu = 3, q = 0.99, num_trees = 200)
+#   test <- as.data.frame(test)
+#   test$BFPred <- predict(bF.fit, test[,-1])
+#   test$SppVar <- spp
+#   test
+# }
+# SS_SI2 <- as.data.table(SS_SI2)
 
 BFMods <- foreach(SppCurr = Spp.list, .combine = c)  %do% {
   SI_Spp <- SS_SI2 [SppVar == SppCurr, ]
   SI_Spp <- SI_Spp[,-c("SS_NoSpace","SppVar","BGC", "Feasible")]
   rownames(SI_Spp) <- NULL
-  SI_Spp <- as.data.frame(SI_Spp)
-  bF.fit <- bartMachine(SI_Spp,SI_Spp$SI, k = 2, nu = 3, q = 0.99, num_trees = 200, serialize = TRUE)
+  y <- SI_Spp$SI
+  X <- as.data.frame(SI_Spp[,!"SI"])
+  bF.fit <- bartMachine(X,y, k = 2, nu = 3, q = 0.99, num_trees = 200, serialize = TRUE)
   list(bF.fit)
 }
 
@@ -201,7 +205,7 @@ bartSIPred <- foreach(SppCurr = Spp.list, .combine = rbind) %do% {
   mod <- BFMods[[SppCurr]]
   sub <- testDat[SppVar == SppCurr,]
   sub <- as.data.frame(sub)
-  out <- data.frame(SS_NoSpace = sub$SS_NoSpace,SIPred = predict(mod, new_data = sub[,-c(1:2)]))
+  out <- data.table(SS_NoSpace = sub$SS_NoSpace,SIPred = predict(mod, new_data = sub[,mod$training_data_features]))
   out$SppVar <- SppCurr
   out
 }
