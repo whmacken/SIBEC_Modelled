@@ -11,7 +11,7 @@ library(tcltk)
 library(reshape2)
 library(foreach)
 library(ggplot2)
-library(dplyr)
+library(tidyverse)
 library(magrittr)
 library(data.table)
 library(gridExtra)
@@ -22,6 +22,7 @@ library(openxlsx)
 library(stringr)
 require(DBI)
 require(data.table)
+require(Hmisc)
 
 changeNames <- function(x, old, new){
   result <- vector("numeric", length(x))
@@ -49,26 +50,132 @@ ASMR$rSMR <- str_remove(ASMR$rSMR, "rSMR")
 setkey(sibec, BGC, MoistureRegime)
 setkey(ASMR, BGC, rSMR)
 setDT(sibec)[ASMR, aSMR := aSMRC]
-
+#sibec <- sibec %>% filter(grepl("SBC",PlotNumber))
 ```
-#Explore by BGC
+
+```{r summarize by BGC x spp}
+sppcount <- sibec %>% group_by(Species) %>% dplyr::summarize(numbersites = n()) %>% filter(numbersites >=15)
+bgcxspp <- sibec %>% group_by(BGC,Species) %>% dplyr::summarize(numbersites = n()) %>% filter(numbersites >=15)
+bgccount <- sibec %>% group_by(BGC) %>% dplyr::summarize(numbersites = n()) %>% filter(numbersites >=15)
+```
+
+#Explore by BGC edatopic position
 ```{r}
-sibec2 <- sibec %>% filter(Species == "Cw") %>% select(Species, BGC, SI50, aSMR, MoistureRegime, SNR) %>% group_by(BGC) %>% mutate(maxSI = max(SI50)) %>% 
-  mutate(SIfraction = SI50/maxSI)
-sibec3 <- sibec2 %>% group_by(BGC, aSMR, SNR) %>% 
-  summarise(maxSIfraction = max(SIfraction, na.rm = TRUE), maxSI2 = max(maxSI, na.rm = TRUE), numbersites = n())
+subzones <- c("ESSFmc")
+spp = "Bl"
+sibec2 <- sibec %>% filter(Species == spp, BHA >19) %>% select(PlotNumber, Species, BGC, SI50, aSMR, MoistureRegime, SNR) %>% group_by(BGC) %>% mutate(maxSI = max(quantile(SI50, probs = 1, na.rm = TRUE))) %>% 
+  mutate(SIfraction = SI50/maxSI) %>% dplyr::filter(BGC %in% subzones , !SIfraction > 1)
+sibec3 <- sibec2 %>% group_by(BGC, MoistureRegime, aSMR, SNR) %>% 
+  summarise(maxSIfraction = max(SIfraction, na.rm = TRUE), maxSI2 = max(maxSI, na.rm = TRUE), SI90 = quantile(SI50, probs = 1, na.rm = TRUE), SIquantile = quantile(SIfraction, probs = .75,na.rm = TRUE), numbersites = n()) %>% filter(numbersites >4) 
+edatopic_SI <- sibec3 %>% select(aSMR, SNR, maxSIfraction) %>% pivot_wider(id_cols = aSMR, names_from = SNR, values_from = maxSIfraction)
+edatopic_SI 
 ```
 
-##Plot SI by DDF for each species for fresh and rich sites
+##Plot SI by DD5 for each species for fresh and rich sites
 ```{r look at max SI by DD5}
-smr_max <- c(5.5,5, 4.5)#, 0, 0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5  )6,  
-snr_max <- c( "D")#"A", "B", "C","D", 
-bgcs <- c("CDF", "CWH", "MH")
-sibec_max <- sibec %>% as.data.frame %>% filter(aSMR %in% smr_max, NutrientRegime %in% snr_max, !Zone %in% bgcs )
+# smr_max <- c(5.5,5, 4.5)#, 0, 0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5  )6,  
+# snr_max <- c("D", "E")#"A", "B", "C","D", 
+# bgcs <- c("CDF", "CWH", "MH")
+#spp = c("Bl")
+sibec_max <- sibec %>% as.data.frame %>% arrange(sibec$SI) %>% filter(Species %in% spp,  BHA >15, DD5<2500) #!Zone %in% bgcs,#, ,  aSMR %in% smr_max, NutrientRegime %in% snr_max, BGC %in% subzones)# )
 
-ggplot(sibec_max, aes(DD5, SI50, color = NutrientRegime)) + geom_point() + facet_wrap(~ Species)
+ggplot(sibec_max, aes(DD5, SI50, color = NutrientRegime)) + geom_point() + facet_wrap(~ Species, ncol = 1)
+
+ggplot(sibec_max, aes(DD5, SI50, color = MoistureRegime, label = PlotNumber)) + geom_point() + 
+    geom_text(position=position_jitter(width=.1,height=.5))+
+  facet_wrap(~ Species, ncol = 1)
 
 ```
+
+```{r}
+#Add dummy rows for DD5 = 0 and DD5 = 3000
+si50_dd5 <- sibec_max #%>% select (SI50, DD5)
+# minmax <- data.frame(SI50 = c(0,0),
+#                      DD5 = c(0, 3000))
+
+breaking = c(0, 100, 200, 300, 400, 500, 600, 700, 800, 900,
+    1000, 1100, 1200, 1300, 1400, 1500, 1600, 1700, 1800, 1900,
+      2000, 2100, 2200, 2300, 2400, 2500, 2600, 2700, 2800, 2900)
+# breaking = c(0,  200,  400,  600,  800,
+#     1000,  1200,  1400,  1600, 1800,
+#       2000,  2200,  2400,  2600,  2800)
+
+dd5bins <- si50_dd5  %>% mutate(new_bin = cut(DD5, breaks = breaking)) %>% mutate(bin = as.factor(new_bin)) %>% group_by(bin) %>% filter(SI50 == max(SI50, na.rm = TRUE)) %>% ungroup()# %>% filter(DD5<1500, DD5>500)
+
+ggplot(dd5bins, aes(DD5, SI50, color = aSMR, label = PlotNumber)) + geom_point()+
+  geom_text(position=position_jitter(width=.1,height=.5))# + facet_wrap(~ Species, ncol = 1)
+
+
+ggplot(dd5bins, aes(DD5, SI50, color = NutrientRegime, label = PlotNumber)) + geom_point() +
+  geom_text(position=position_jitter(width=1,height=1))+
+  facet_wrap(~ Species, ncol = 1)
+```
+
+
+```{r}
+si_maxvals <- dd5bins %>% select(PlotNumber, DD5,SI50,  -bin) %>% mutate_if(is.integer,as.numeric)
+si_maxvals <- si_maxvals #%>% filter(DD5<750)#, DD5<1500)
+
+lmTemp = lm(SI50 ~DD5, data = si_maxvals) #Create the linear regression
+summary(lmTemp)
+#get intercept and slope value
+coeff <-coefficients(lmTemp)          
+intercept <-coeff[1]
+slope <- coeff[2]
+
+ggp <- ggplot(si_maxvals, aes(DD5, SI50, label = PlotNumber)) +           
+  geom_point()+
+  geom_abline(intercept = intercept, slope = slope, color="red", 
+               linetype="dashed", size=1.5)+
+  xlim(0,2000)+
+  ylim(0,50)+
+  ggtitle("Climate Potential SI50 by DD5")+
+  geom_text(position=position_jitter(width=.1,height=.5))
+ggp
+
+intercept_bl <-coeff[1]
+slope_bl <- coeff[2]
+```
+
+
+```{r}
+
+ggp <- ggplot(si_maxvals, aes(DD5, SI50, label = PlotNumber)) +           
+  geom_point()+
+  geom_abline(intercept = intercept_bl, slope = slope_bl, color="red", 
+               linetype="dashed", size=1.5)+
+    geom_abline(intercept = intercept_pl, slope = slope_pl, color="blue", 
+               linetype="dashed", size=1.5)+
+    geom_abline(intercept = intercept_fd, slope = slope_fd, color="orange", 
+               linetype="dashed", size=1.5)+
+  xlim(0,2000)+
+  ylim(0,50)+
+  ggtitle("Climate Potential SI50 by DD5")+
+  geom_text(position=position_jitter(width=.1,height=.5))
+ggp
+```
+
+
+```{r}
+```
+
+
+
+
+
+plot(si_maxvals, pch = 16, col = "blue") #Plot the results
+abline(lmTemp$coefficients) #Add a regression line
+summary(lmTemp)
+plot(lmTemp$residuals, pch = 16, col = "red")
+plot(cooks.distance(lmTemp), pch = 16, col = "blue")
+
+
+plot(y ~ x, data = dat, main="Least square regression")
+abline(a = result$par[1], b = result$par[2], col = "red")
+```
+
+
+
 
 ##Create SI models for each species####
 
