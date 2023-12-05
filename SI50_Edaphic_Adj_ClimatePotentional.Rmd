@@ -1,0 +1,31 @@
+---
+title: "Edaphic Site Index Ratio"
+author: "Will MacKenzie"
+date: "2023-12-05"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Calculating relative site index at edaphic position relative to the climatic potential site index (soil moisture and nutrients optimal (fresh/moist + rich/very rich))
+Use various sources.
+e.g. Klinka and Carter 1990 SI = 35.5 − 7.0(VD) − 1.4(MD) + 0.1(SD) + 3.1(F) + 0.0(M) − 9.4(VP) − 7.4(P) − 4.9(M) − 1.5(R) + 0.0(VR). This equation had a adjusted R2 = 0.85, SEE = 2.0.
+Here we can assume that 35.5 meters is the climatic optimum for Fdc in the CWHxm
+The new SiBEC modelled to be generated from an initial model equation of Si - climatic potential by DD5 (plus other temperature/light related factor) where SI from suboptimal sites would be divided by the ratio of climate potential to adjust these SI to the climate curve. This can be used to create a comprehensive model from all data. The ratios can be a starting point but then optimized but assessing best ratio adjustment to minimize R2
+
+```{r }
+
+
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
