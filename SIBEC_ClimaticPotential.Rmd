@@ -61,10 +61,10 @@ bgccount <- sibec %>% group_by(BGC) %>% dplyr::summarize(numbersites = n()) %>% 
 
 #Explore by BGC edatopic position
 ```{r}
-subzones <- c("ESSFmc")
-spp = "Bl"
+#subzones <- c("IDF")
+spp = "Sx"
 sibec2 <- sibec %>% filter(Species == spp, BHA >19) %>% select(PlotNumber, Species, BGC, SI50, aSMR, MoistureRegime, SNR) %>% group_by(BGC) %>% mutate(maxSI = max(quantile(SI50, probs = 1, na.rm = TRUE))) %>% 
-  mutate(SIfraction = SI50/maxSI) %>% dplyr::filter(BGC %in% subzones , !SIfraction > 1)
+  mutate(SIfraction = SI50/maxSI) #%>% dplyr::filter(BGC %in% subzones , !SIfraction > 1)
 sibec3 <- sibec2 %>% group_by(BGC, MoistureRegime, aSMR, SNR) %>% 
   summarise(maxSIfraction = max(SIfraction, na.rm = TRUE), maxSI2 = max(maxSI, na.rm = TRUE), SI90 = quantile(SI50, probs = 1, na.rm = TRUE), SIquantile = quantile(SIfraction, probs = .75,na.rm = TRUE), numbersites = n()) %>% filter(numbersites >4) 
 edatopic_SI <- sibec3 %>% select(aSMR, SNR, maxSIfraction) %>% pivot_wider(id_cols = aSMR, names_from = SNR, values_from = maxSIfraction)
@@ -77,7 +77,7 @@ edatopic_SI
 # snr_max <- c("D", "E")#"A", "B", "C","D", 
 # bgcs <- c("CDF", "CWH", "MH")
 #spp = c("Bl")
-sibec_max <- sibec %>% as.data.frame %>% arrange(sibec$SI) %>% filter(Species %in% spp,  BHA >15, DD5<2500) #!Zone %in% bgcs,#, ,  aSMR %in% smr_max, NutrientRegime %in% snr_max, BGC %in% subzones)# )
+sibec_max <- sibec %>% as.data.frame %>% arrange(sibec$SI) %>% filter(Species %in% spp,  BHA >15, DD5<2100) #!Zone %in% bgcs,#, ,  aSMR %in% smr_max, NutrientRegime %in% snr_max, BGC %in% subzones)# )
 
 ggplot(sibec_max, aes(DD5, SI50, color = NutrientRegime)) + geom_point() + facet_wrap(~ Species, ncol = 1)
 
@@ -114,7 +114,11 @@ ggplot(dd5bins, aes(DD5, SI50, color = NutrientRegime, label = PlotNumber)) + ge
 
 ```{r}
 si_maxvals <- dd5bins %>% select(PlotNumber, DD5,SI50,  -bin) %>% mutate_if(is.integer,as.numeric)
-si_maxvals <- si_maxvals #%>% filter(DD5<750)#, DD5<1500)
+##outliers for Sx
+outliers = c("KN0269", "KN02689", "SBC7845", "SBC7272", "SBC5586", "K99-324") ## created by iterating through cooks bar graph thesholds below
+##outliers for Fd
+
+si_maxvals <- si_maxvals %>%  filter(!PlotNumber %in% outliers)
 
 lmTemp = lm(SI50 ~DD5, data = si_maxvals) #Create the linear regression
 summary(lmTemp)
@@ -123,18 +127,46 @@ coeff <-coefficients(lmTemp)
 intercept <-coeff[1]
 slope <- coeff[2]
 
+### graph of the plot and lm
 ggp <- ggplot(si_maxvals, aes(DD5, SI50, label = PlotNumber)) +           
   geom_point()+
   geom_abline(intercept = intercept, slope = slope, color="red", 
                linetype="dashed", size=1.5)+
   xlim(0,2000)+
   ylim(0,50)+
-  ggtitle("Climate Potential SI50 by DD5")+
+  ggtitle(paste("Climate Potential SI50 by DD5 for ", spp))+
   geom_text(position=position_jitter(width=.1,height=.5))
 ggp
 
-intercept_bl <-coeff[1]
-slope_bl <- coeff[2]
+# require(stats)
+# plot(lmTemp$residuals, pch = 16, col = "red")
+# plot(cooks.distance(lmTemp), pch = 16, col = "blue")
+require(olsrr)
+xx <- ols_plot_cooksd_bar(lmTemp) ##the observation number of outlier corresponds the rank order of SI50
+```
+
+
+```{r}
+###save and the final equation for species
+spp_lmeq_sx <- data.frame(spp = spp, intercept = intercept, slope = slope)
+##Calculate these for geom_segment
+min_x = 
+max_x = 
+min_y = 
+max_y = 
+
+spp_lmeq <- rbind(spp_lmeq, spp_lmeq_sx)
+lm_lines <- ggplot(spp_lmeq ) +           
+  geom_abline(aes(intercept = intercept, slope = slope, color=factor(spp)), 
+               linetype="dashed", size=1.5)+
+  xlim(0,2000)+
+  ylim(0,50)+
+  ggtitle(paste("Climate Potential SI50 by DD5 for ", spp))
+lm_lines
+```
+
+
+```{r}
 ```
 
 
@@ -142,11 +174,11 @@ slope_bl <- coeff[2]
 
 ggp <- ggplot(si_maxvals, aes(DD5, SI50, label = PlotNumber)) +           
   geom_point()+
-  geom_abline(intercept = intercept_bl, slope = slope_bl, color="red", 
+  geom_abline(intercept = intercept, slope = slope, color="red", 
                linetype="dashed", size=1.5)+
-    geom_abline(intercept = intercept_pl, slope = slope_pl, color="blue", 
+    geom_abline(intercept = intercept, slope = slope, color="blue", 
                linetype="dashed", size=1.5)+
-    geom_abline(intercept = intercept_fd, slope = slope_fd, color="orange", 
+    geom_abline(intercept = intercept, slope = slope, color="orange", 
                linetype="dashed", size=1.5)+
   xlim(0,2000)+
   ylim(0,50)+
