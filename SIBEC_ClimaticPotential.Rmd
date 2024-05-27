@@ -43,7 +43,7 @@ changeNames <- function(x, old, new){
 sibec_master <- dbConnect(odbc::odbc(), .connection_string = "Driver={Microsoft Access Driver (*.mdb, *.accdb)}; DBQ=F:/OneDrive - Government of BC/SIBEC/SIBEC_2022_Provincial_WHM.accdb;")
 sibec  <- dbReadTable(sibec_master, "SIBEC_Analysis_Data")
 dbDisconnect(sibec_master)
-sibec  <- sibec %>% mutate(BGC = paste0(Zone, SubZone), SNR = toupper(NutrientRegime)) %>% as.data.table
+sibec  <- sibec %>% mutate(BGC = paste0(Zone, SubZone), SNR = toupper(NutrientRegime)) %>% as.data.table %>% distinct()
 load("./inputs/rSMR_aSMR_CalcList.RData")
 ASMR <- aSMR_rSMR.long %>% as.data.table
 ASMR$rSMR <- str_remove(ASMR$rSMR, "rSMR")
@@ -52,17 +52,32 @@ setkey(ASMR, BGC, rSMR)
 setDT(sibec)[ASMR, aSMR := aSMRC]
 #sibec <- sibec %>% filter(grepl("SBC",PlotNumber))
 ```
-
+## Examining SI numbers by groups.
+The summaries by edaphic position show that there are few well sampled azonal edaphic positions. Almost all well sampled edatopes are in the 3-5 B-D.
 ```{r summarize by BGC x spp}
 sppcount <- sibec %>% group_by(Species) %>% dplyr::summarize(numbersites = n()) %>% filter(numbersites >=15)
 bgcxspp <- sibec %>% group_by(BGC,Species) %>% dplyr::summarize(numbersites = n()) %>% filter(numbersites >=15)
 bgccount <- sibec %>% group_by(BGC) %>% dplyr::summarize(numbersites = n()) %>% filter(numbersites >=15)
+sibec_calc <- sibec %>% group_by(Species, BGC, MoistureRegime, NutrientRegime) %>%
+    dplyr::summarize(si50 = mean(SI50), numbersites = n()) %>%   filter(numbersites >=5)
+sibec_tst <- sibec_calc %>% filter(str_detect(BGC, "^SBS"))
+ggplot(sibec_tst, aes(x=BGC, y= si50))+
+  geom_point()+
+  facet_wrap(~Species, ncol=2)+
+ # coord_flip()
+  scale_x_discrete(guide = guide_axis(angle = 90))
+fwrite(sibec_calc, "sibec_by_edatope_calc.csv")
+sibec_calc2 <- sibec  %>% group_by(Species, BGC, MoistureRegime, NutrientRegime) %>%   
+  dplyr::mutate(n = n()) %>% filter(n >=8) %>% 
+  arrange(SI50) %>% slice(3:(n() - 2)) %>%   
+  dplyr::summarize(si50_2 = mean(SI50), numbersites = n())
+fwrite(sibec_calc2, "sibec_by_edatope_calc_reduced.csv")
 ```
 
 #Explore by BGC edatopic position
 ```{r}
 #subzones <- c("IDF")
-spp = "Sx"
+spp = "Pl"
 sibec2 <- sibec %>% filter(Species == spp, BHA >19) %>% select(PlotNumber, Species, BGC, SI50, aSMR, MoistureRegime, SNR) %>% group_by(BGC) %>% mutate(maxSI = max(quantile(SI50, probs = 1, na.rm = TRUE))) %>% 
   mutate(SIfraction = SI50/maxSI) #%>% dplyr::filter(BGC %in% subzones , !SIfraction > 1)
 sibec3 <- sibec2 %>% group_by(BGC, MoistureRegime, aSMR, SNR) %>% 
@@ -77,9 +92,11 @@ edatopic_SI
 # snr_max <- c("D", "E")#"A", "B", "C","D", 
 # bgcs <- c("CDF", "CWH", "MH")
 #spp = c("Bl")
-sibec_max <- sibec %>% as.data.frame %>% arrange(sibec$SI) %>% filter(Species %in% spp,  BHA >15, DD5<2100) #!Zone %in% bgcs,#, ,  aSMR %in% smr_max, NutrientRegime %in% snr_max, BGC %in% subzones)# )
+sibec_max <- sibec %>% as.data.frame %>% arrange(sibec$SI) %>% filter(Species %in% spp,  BHA >45, between (DD5,1200, 1250)) #!Zone %in% bgcs,#, ,  aSMR %in% smr_max, NutrientRegime %in% snr_max, BGC %in% subzones)# )
 
-ggplot(sibec_max, aes(DD5, SI50, color = NutrientRegime)) + geom_point() + facet_wrap(~ Species, ncol = 1)
+ggplot(sibec_max, aes(DD5, SI50, color = NutrientRegime, label = PlotNumber)) + geom_point() + 
+    geom_text(position=position_jitter(width=.1,height=.5))+  
+  facet_wrap(~ Species, ncol = 1)
 
 ggplot(sibec_max, aes(DD5, SI50, color = MoistureRegime, label = PlotNumber)) + geom_point() + 
     geom_text(position=position_jitter(width=.1,height=.5))+
@@ -89,7 +106,8 @@ ggplot(sibec_max, aes(DD5, SI50, color = MoistureRegime, label = PlotNumber)) + 
 
 ```{r}
 #Add dummy rows for DD5 = 0 and DD5 = 3000
-si50_dd5 <- sibec_max #%>% select (SI50, DD5)
+coast = c("CWH", "CDF")
+si50_dd5 <- sibec_max %>% filter(!Zone %in% coast)
 # minmax <- data.frame(SI50 = c(0,0),
 #                      DD5 = c(0, 3000))
 
@@ -133,7 +151,7 @@ ggp <- ggplot(si_maxvals, aes(DD5, SI50, label = PlotNumber)) +
   geom_abline(intercept = intercept, slope = slope, color="red", 
                linetype="dashed", size=1.5)+
   xlim(0,2000)+
-  ylim(0,50)+
+  ylim(0,45)+
   ggtitle(paste("Climate Potential SI50 by DD5 for ", spp))+
   geom_text(position=position_jitter(width=.1,height=.5))
 ggp
@@ -156,10 +174,10 @@ min_y =
 max_y = 
 
 spp_lmeq <- rbind(spp_lmeq, spp_lmeq_sx)
-lm_lines <- ggplot(spp_lmeq ) +           
+lm_lines <- ggplot(spp_lmeq_sx ) +           
   geom_abline(aes(intercept = intercept, slope = slope, color=factor(spp)), 
                linetype="dashed", size=1.5)+
-  xlim(0,2000)+
+  xlim(700,1750)+
   ylim(0,50)+
   ggtitle(paste("Climate Potential SI50 by DD5 for ", spp))
 lm_lines
@@ -189,12 +207,6 @@ ggp
 
 
 ```{r}
-```
-
-
-
-
-
 plot(si_maxvals, pch = 16, col = "blue") #Plot the results
 abline(lmTemp$coefficients) #Add a regression line
 summary(lmTemp)
