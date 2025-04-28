@@ -16,7 +16,7 @@ library(magrittr)
 library(data.table)
 library(gridExtra)
 library(mgcv)
-library(rgl)
+#library(rgl)
 library(deldir)
 library(openxlsx)
 library(stringr)
@@ -40,67 +40,85 @@ changeNames <- function(x, old, new){
 
 ```{r read in data}
 ###########Create full SIBEC Predict Data set from BART model###########
-sibec_master <- dbConnect(odbc::odbc(), .connection_string = "Driver={Microsoft Access Driver (*.mdb, *.accdb)}; DBQ=F:/OneDrive - Government of BC/SIBEC/SIBEC_2022_Provincial_WHM.accdb;")
-sibec  <- dbReadTable(sibec_master, "SIBEC_Analysis_Data")
+# sibec_master <- dbConnect(odbc::odbc(), .connection_string = "Driver={Microsoft Access Driver (*.mdb, *.accdb)}; DBQ=F:/OneDrive - Government of BC/SIBEC/SIBEC_2022_Provincial_WHM.accdb;")
+
+sibec_master <- dbConnect(odbc::odbc(), .connection_string = "Driver={Microsoft Access Driver (*.mdb, *.accdb)}; DBQ=D:/GitHub/SIBEC_Modelled/data/SIBEC_2024_Prov_VPRO_Master.accdb;")
+sibec  <- dbReadTable(sibec_master, "SIBEC_All_2024_ENV")
+sibec.tree  <- dbReadTable(sibec_master, "SIBEC_All_2024_Trees")
 dbDisconnect(sibec_master)
-sibec  <- sibec %>% mutate(BGC = paste0(Zone, SubZone), SNR = toupper(NutrientRegime)) %>% as.data.table %>% distinct()
+sibec  <- sibec %>% mutate(BGC = paste0(Zone, SubZone), SNR = toupper(NutrientRegime), SMR = MoistureRegime) %>% as.data.table %>% distinct()
+sibec2 <- sibec %>% select(PlotNumber, Zone, BGC, SNR, Latitude, Longitude, Elevation, SMR, Aspect, SlopeGradient)
+site.tree2 <- sibec.tree %>% select(PlotNumber, TreeSpp, CountAge, SiteIndex, SiteIndex24) %>% as.data.table
+site.tree2 <- site.tree2 %>% 
+  mutate(TreeSpp = case_when(
+    TreeSpp == "Sw" ~ "Sx",
+    TreeSpp == "SX" ~ "Sx",
+    TreeSpp == "Se" ~ "Sx",
+    TRUE ~ TreeSpp  # Keeps other values unchanged
+  ))
+
+sibec <- merge(sibec2, site.tree2, by = "PlotNumber", all.x = TRUE)
+```
+
+
+```{r add in climr and aSMR values}
 load("./inputs/rSMR_aSMR_CalcList.RData")
-ASMR <- aSMR_rSMR.long %>% as.data.table
-ASMR$rSMR <- str_remove(ASMR$rSMR, "rSMR")
-setkey(sibec, BGC, MoistureRegime)
-setkey(ASMR, BGC, rSMR)
-setDT(sibec)[ASMR, aSMR := aSMRC]
+# ASMR <- aSMR_rSMR.long %>% as.data.table
+# ASMR$rSMR <- str_remove(ASMR$rSMR, "rSMR")
+# setkey(sibec, BGC, MoistureRegime)
+# setkey(ASMR, BGC, rSMR)
+# setDT(sibec)[ASMR, aSMR := aSMRC]
 #sibec <- sibec %>% filter(grepl("SBC",PlotNumber))
 ```
 ## Examining SI numbers by groups.
 The summaries by edaphic position show that there are few well sampled azonal edaphic positions. Almost all well sampled edatopes are in the 3-5 B-D.
 ```{r summarize by BGC x spp}
-sppcount <- sibec %>% group_by(Species) %>% dplyr::summarize(numbersites = n()) %>% filter(numbersites >=15)
-bgcxspp <- sibec %>% group_by(BGC,Species) %>% dplyr::summarize(numbersites = n()) %>% filter(numbersites >=15)
+sppcount <- sibec %>% group_by(TreeSpp) %>% dplyr::summarize(numbersites = n()) %>% filter(numbersites >=15)
+bgcxspp <- sibec %>% group_by(BGC,TreeSpp) %>% dplyr::summarize(numbersites = n()) %>% filter(numbersites >=15)
 bgccount <- sibec %>% group_by(BGC) %>% dplyr::summarize(numbersites = n()) %>% filter(numbersites >=15)
-sibec_calc <- sibec %>% group_by(Species, BGC, MoistureRegime, NutrientRegime) %>%
-    dplyr::summarize(si50 = mean(SI50), numbersites = n()) %>%   filter(numbersites >=5)
-sibec_tst <- sibec_calc %>% filter(str_detect(BGC, "^SBS"))
+sibec_calc <- sibec %>% group_by(TreeSpp, Zone, BGC, SMR, SNR) %>%
+    dplyr::summarize(si50 = mean(SiteIndex24), numbersites = n()) %>%   filter(numbersites >=1)
+sibec_tst <- sibec_calc %>% filter(Zone %in% c("SBS"))
 ggplot(sibec_tst, aes(x=BGC, y= si50))+
   geom_point()+
-  facet_wrap(~Species, ncol=2)+
+  facet_wrap(~TreeSpp, ncol=2)+
  # coord_flip()
   scale_x_discrete(guide = guide_axis(angle = 90))
 fwrite(sibec_calc, "sibec_by_edatope_calc.csv")
-sibec_calc2 <- sibec  %>% group_by(Species, BGC, MoistureRegime, NutrientRegime) %>%   
+sibec_calc2 <- sibec  %>% group_by(TreeSpp, BGC, SMR, SNR) %>%   
   dplyr::mutate(n = n()) %>% filter(n >=8) %>% 
-  arrange(SI50) %>% slice(3:(n() - 2)) %>%   
-  dplyr::summarize(si50_2 = mean(SI50), numbersites = n())
+  arrange(SiteIndex24) %>% slice(3:(n() - 2)) %>%   
+  dplyr::summarize(si50_2 = mean(SiteIndex24), numbersites = n())
 fwrite(sibec_calc2, "sibec_by_edatope_calc_reduced.csv")
 ```
 
 #Explore by BGC edatopic position
 ```{r}
 #subzones <- c("IDF")
-spp = "Pl"
-sibec2 <- sibec %>% filter(Species == spp, BHA >19) %>% select(PlotNumber, Species, BGC, SI50, aSMR, MoistureRegime, SNR) %>% group_by(BGC) %>% mutate(maxSI = max(quantile(SI50, probs = 1, na.rm = TRUE))) %>% 
-  mutate(SIfraction = SI50/maxSI) #%>% dplyr::filter(BGC %in% subzones , !SIfraction > 1)
-sibec3 <- sibec2 %>% group_by(BGC, MoistureRegime, aSMR, SNR) %>% 
-  summarise(maxSIfraction = max(SIfraction, na.rm = TRUE), maxSI2 = max(maxSI, na.rm = TRUE), SI90 = quantile(SI50, probs = 1, na.rm = TRUE), SIquantile = quantile(SIfraction, probs = .75,na.rm = TRUE), numbersites = n()) %>% filter(numbersites >4) 
-edatopic_SI <- sibec3 %>% select(aSMR, SNR, maxSIfraction) %>% pivot_wider(id_cols = aSMR, names_from = SNR, values_from = maxSIfraction)
+spp = "Sx"
+sibec2 <- sibec %>% filter(TreeSpp == spp, CountAge >19) %>% select(PlotNumber, TreeSpp, BGC, SiteIndex24, SMR, SNR) %>% group_by(BGC) %>% mutate(maxSI = max(quantile(SiteIndex24, probs = 1, na.rm = TRUE))) %>% 
+  mutate(SIfraction = SiteIndex24/maxSI) #%>% dplyr::filter(BGC %in% subzones , !SIfraction > 1)
+sibec3 <- sibec2 %>% group_by(BGC, SMR, SNR) %>% 
+  summarise(maxSIfraction = max(SIfraction, na.rm = TRUE), maxSI2 = max(maxSI, na.rm = TRUE), SI90 = quantile(SiteIndex24, probs = 1, na.rm = TRUE), SIquantile = quantile(SIfraction, probs = .75,na.rm = TRUE), numbersites = n()) %>% filter(numbersites >4) 
+edatopic_SI <- sibec3 %>% select(SMR, SNR, maxSIfraction) %>% pivot_wider(id_cols = SMR, names_from = SNR, values_from = maxSIfraction)
 edatopic_SI 
 ```
 
-##Plot SI by DD5 for each species for fresh and rich sites
+##Plot SI by DD5 for each TreeSpp for fresh and rich sites
 ```{r look at max SI by DD5}
 # smr_max <- c(5.5,5, 4.5)#, 0, 0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5  )6,  
 # snr_max <- c("D", "E")#"A", "B", "C","D", 
 # bgcs <- c("CDF", "CWH", "MH")
 #spp = c("Bl")
-sibec_max <- sibec %>% as.data.frame %>% arrange(sibec$SI) %>% filter(Species %in% spp,  BHA >45, between (DD5,1200, 1250)) #!Zone %in% bgcs,#, ,  aSMR %in% smr_max, NutrientRegime %in% snr_max, BGC %in% subzones)# )
+sibec_max <- sibec %>% as.data.frame %>% arrange(sibec$SI) %>% filter(TreeSpp %in% spp,  BHA >45, between (DD5,1200, 1250)) #!Zone %in% bgcs,#, ,  aSMR %in% smr_max, NutrientRegime %in% snr_max, BGC %in% subzones)# )
 
 ggplot(sibec_max, aes(DD5, SI50, color = NutrientRegime, label = PlotNumber)) + geom_point() + 
     geom_text(position=position_jitter(width=.1,height=.5))+  
-  facet_wrap(~ Species, ncol = 1)
+  facet_wrap(~ TreeSpp, ncol = 1)
 
 ggplot(sibec_max, aes(DD5, SI50, color = MoistureRegime, label = PlotNumber)) + geom_point() + 
     geom_text(position=position_jitter(width=.1,height=.5))+
-  facet_wrap(~ Species, ncol = 1)
+  facet_wrap(~ TreeSpp, ncol = 1)
 
 ```
 
@@ -121,12 +139,12 @@ breaking = c(0, 100, 200, 300, 400, 500, 600, 700, 800, 900,
 dd5bins <- si50_dd5  %>% mutate(new_bin = cut(DD5, breaks = breaking)) %>% mutate(bin = as.factor(new_bin)) %>% group_by(bin) %>% filter(SI50 == max(SI50, na.rm = TRUE)) %>% ungroup()# %>% filter(DD5<1500, DD5>500)
 
 ggplot(dd5bins, aes(DD5, SI50, color = aSMR, label = PlotNumber)) + geom_point()+
-  geom_text(position=position_jitter(width=.1,height=.5))# + facet_wrap(~ Species, ncol = 1)
+  geom_text(position=position_jitter(width=.1,height=.5))# + facet_wrap(~ TreeSpp, ncol = 1)
 
 
 ggplot(dd5bins, aes(DD5, SI50, color = NutrientRegime, label = PlotNumber)) + geom_point() +
   geom_text(position=position_jitter(width=1,height=1))+
-  facet_wrap(~ Species, ncol = 1)
+  facet_wrap(~ TreeSpp, ncol = 1)
 ```
 
 
@@ -165,7 +183,7 @@ xx <- ols_plot_cooksd_bar(lmTemp) ##the observation number of outlier correspond
 
 
 ```{r}
-###save and the final equation for species
+###save and the final equation for TreeSpp
 spp_lmeq_sx <- data.frame(spp = spp, intercept = intercept, slope = slope)
 ##Calculate these for geom_segment
 min_x = 
@@ -221,14 +239,14 @@ abline(a = result$par[1], b = result$par[2], col = "red")
 
 
 
-##Create SI models for each species####
+##Create SI models for each TreeSpp####
 
 ```{r pressure, echo=FALSE}
 
 
-#####Pull in climatic and site data for each siteseries species in sibecOrig (pull from suitability script)
+#####Pull in climatic and site data for each siteseries TreeSpp in sibecOrig (pull from suitability script)
 SSSuit_Data <- finalDat
-#Harmonize the species labelling in both data sets. Sx for all interior spruce, Pl, Cw, Fd
+#Harmonize the TreeSpp labelling in both data sets. Sx for all interior spruce, Pl, Cw, Fd
 SSSuit_Data$Spp <- dplyr::recode(SSSuit_Data$Spp, Cwc="Cw", Fdc = "Fd", Se = "Sx", Sw = "Sx", Plc = "Pl", Bgc = "Bg")
 sibecOrig$TreeSpp <- dplyr::recode(sibecOrig$TreeSpp, Cwc="Cw", Fdc = "Fd", Se = "Sx", Sw = "Sx", Plc = "Pl", Bgc = "Bg")
 
@@ -246,9 +264,9 @@ Spp_count2 <- SS_SI2 %>%
   summarise(count = n())
 
 
-Spp.list <- Spp_count2$Spp[Spp_count2$count > 10] %>% as.character()###list of species where there are more than 5 values
+Spp.list <- Spp_count2$Spp[Spp_count2$count > 10] %>% as.character()###list of TreeSpp where there are more than 5 values
 SS_SI2 <- SS_SI2[!is.na(SS_SI2$SI),]
-###No sibec data - SHould be all site series. Where species does not occur then Site Index is 0
+###No sibec data - SHould be all site series. Where TreeSpp does not occur then Site Index is 0
 # SS_noSibec <- sibecOrig [is.na(sibecOrig$PlotCountSpp),]
 # SS_SInew <- SS_noSibec [,c(9,5,7) ]
 # colnames (SS_SInew) [1:3] <- c("Unit", "Spp", "SI")
@@ -256,7 +274,7 @@ SS_SI2 <- SS_SI2[!is.na(SS_SI2$SI),]
 # SS_SInew2 <- distinct(SS_SInew2)
 # ###ignore warning
 # #######################
-# ###Then build regression model for each species and predict SI for places where values
+# ###Then build regression model for each TreeSpp and predict SI for places where values
 ```
 
 ```{r build regression model}
