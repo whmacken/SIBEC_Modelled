@@ -41,14 +41,18 @@ changeNames <- function(x, old, new){
 ```{r read in data}
 ###########Create full SIBEC Predict Data set from BART model###########
 # sibec_master <- dbConnect(odbc::odbc(), .connection_string = "Driver={Microsoft Access Driver (*.mdb, *.accdb)}; DBQ=F:/OneDrive - Government of BC/SIBEC/SIBEC_2022_Provincial_WHM.accdb;")
-
-sibec_master <- dbConnect(odbc::odbc(), .connection_string = "Driver={Microsoft Access Driver (*.mdb, *.accdb)}; DBQ=D:/GitHub/SIBEC_Modelled/data/SIBEC_2024_Prov_VPRO_Master.accdb;")
+sibec_master <- dbConnect(odbc::odbc(), .connection_string = "Driver={Microsoft Access Driver (*.mdb, *.accdb)}; DBQ=D:/OneDrive - Government of BC/SIBEC_files/SIBEC_2024_Prov_VPRO_Master.accdb;")
 sibec  <- dbReadTable(sibec_master, "SIBEC_All_2024_ENV")
 sibec.tree  <- dbReadTable(sibec_master, "SIBEC_All_2024_Trees")
+sibec.treeplot  <- dbReadTable(sibec_master, "SIBEC_All_2024_TreePlot")
+#SI_raw  <- dbReadTable(sibec_master, "SIBEC_Analysis_Data")
 dbDisconnect(sibec_master)
 sibec  <- sibec %>% mutate(BGC = paste0(Zone, SubZone), SNR = toupper(NutrientRegime), SMR = MoistureRegime) %>% as.data.table %>% distinct()
-sibec2 <- sibec %>% select(PlotNumber, Zone, BGC, SNR, Latitude, Longitude, Elevation, SMR, Aspect, SlopeGradient)
-site.tree2 <- sibec.tree %>% select(PlotNumber, TreeSpp, CountAge, SiteIndex, SiteIndex24) %>% as.data.table
+sibec2 <- sibec %>% select(PlotNumber, Zone, BGC, Latitude, Longitude, Elevation, SMR, SNR, Aspect, SlopeGradient)
+#site.tree2 <- sibec.tree %>% select(PlotNumber, TreeSpp, DBH, TotalHtCalc, TotalAge, CountAge, SiteIndex, SI50_2025_interior) %>% as.data.table
+site.tree2 <- sibec.tree %>% select(PlotNumber, TreeSpp, TreeNum, DBH, TotalHtCalc, TotalAge, CountAge, SiteIndex, SiteIndex24, SiteIndex25_interior, SiteIndex25_coast) %>% as.data.table
+
+sibec.treeplot2 <- sibec.treeplot %>% select(PlotNumber, BECSiteUnit) %>% as.data.table
 site.tree2 <- site.tree2 %>% 
   mutate(TreeSpp = case_when(
     TreeSpp == "Sw" ~ "Sx",
@@ -58,6 +62,7 @@ site.tree2 <- site.tree2 %>%
   ))
 
 sibec <- merge(sibec2, site.tree2, by = "PlotNumber", all.x = TRUE)
+sibec <- merge(sibec, sibec.treeplot2, by = "PlotNumber", all.x = TRUE)
 ```
 
 
@@ -73,11 +78,36 @@ load("./inputs/rSMR_aSMR_CalcList.RData")
 ## Examining SI numbers by groups.
 The summaries by edaphic position show that there are few well sampled azonal edaphic positions. Almost all well sampled edatopes are in the 3-5 B-D.
 ```{r summarize by BGC x spp}
-sppcount <- sibec %>% group_by(TreeSpp) %>% dplyr::summarize(numbersites = n()) %>% filter(numbersites >=15)
-bgcxspp <- sibec %>% group_by(BGC,TreeSpp) %>% dplyr::summarize(numbersites = n()) %>% filter(numbersites >=15)
-bgccount <- sibec %>% group_by(BGC) %>% dplyr::summarize(numbersites = n()) %>% filter(numbersites >=15)
+sppcount <- sibec %>% group_by(TreeSpp) %>% dplyr::summarize(numbersites = n()) #%>% filter(numbersites >=15)
+gt::gt(sppcount)
+bgcxspp <- sibec %>% group_by(BGC,TreeSpp) %>% dplyr::summarize(numbertrees = n()) %>% ungroup# %>% filter(numbersites >=15)
+bgccount <- sibec %>% group_by(BGC) %>% dplyr::summarize(numbertrees = n()) #%>% filter(numbersites >=15)
+gt::gt(bgccount)
+#sibec_diffs <- sibec %>% mutate(diff_si50 = SiteIndex - SI50_2025_interior)  %>% filter(abs(diff_si50) >=1) #%>% filter(startsWith(PlotNumber, "8CS"))#
+sibec_diffs <- sibec %>%
+  mutate(
+    diff24_si50 = SiteIndex - SiteIndex24,
+    diff25_si50_int = SiteIndex - SiteIndex25_interior,
+    diff25_si50_cst = SiteIndex - SiteIndex25_coast
+      ) %>% 
+  mutate_if(is.numeric, round, 2) %>% 
+  filter(abs(diff25_si50_int) >= 1) %>% 
+  filter(!grepl("^(CWH|MH|CDF)", BECSiteUnit))
+
+
+  
+
+
+#fwrite(sibec_diffs, "old-new_si50_more_than_1m.csv")
+#write.xlsx(sibec_diffs, "Canfor2008_comparedSI.xlsx")
+write.xlsx(sibec_diffs, "old-new_si50_more_than_1m.xlsx", overrite = TRUE)
+
+```
+
+
+```{r summarize by BGC x spp}
 sibec_calc <- sibec %>% group_by(TreeSpp, Zone, BGC, SMR, SNR) %>%
-    dplyr::summarize(si50 = mean(SiteIndex24), numbersites = n()) %>%   filter(numbersites >=1)
+    dplyr::summarize(si50 = mean(SiteIndex24), si50_sd = sd(SiteIndex24), numbersites = n()) %>%   filter(numbersites >=1)
 sibec_tst <- sibec_calc %>% filter(Zone %in% c("SBS"))
 ggplot(sibec_tst, aes(x=BGC, y= si50))+
   geom_point()+
@@ -92,6 +122,40 @@ sibec_calc2 <- sibec  %>% group_by(TreeSpp, BGC, SMR, SNR) %>%
 fwrite(sibec_calc2, "sibec_by_edatope_calc_reduced.csv")
 ```
 
+The summaries by edaphic position show that there are few well sampled azonal edaphic positions. Almost all well sampled edatopes are in the 3-5 B-D.
+```{r summarize by BGC x spp}
+sibec_calc <- sibec %>% group_by(BECSiteUnit, TreeSpp) %>%
+    dplyr::mutate(si50 = mean(SiteIndex24), si50_sd = sd(SiteIndex24), cv = si50_sd / si50, numbersites = n()) %>%  ungroup %>% 
+  rowwise %>% mutate(z_scores = (SiteIndex24 - si50) / si50_sd) %>% ungroup %>% data.table
+
+outliers <- sibec_calc[abs(z_scores) > 3]
+
+#  arrange(TreeSpp, BECSiteUnit)
+#gt::gt(sibec_calc)
+##sibec_tst <- sibec_calc %>% filter(Zone %in% c("SBS"))
+ggplot(sibec_tst, aes(x=BGC, y= si50))+
+  geom_point()+
+  facet_wrap(~TreeSpp, ncol=2)+
+ # coord_flip()
+  scale_x_discrete(guide = guide_axis(angle = 90))
+fwrite(sibec_calc, "sibec_by_edatope_calc.csv")
+sibec_calc2 <- sibec  %>% group_by(TreeSpp, BGC, SMR, SNR) %>%   
+  dplyr::mutate(n = n()) %>% filter(n >=8) %>% 
+  arrange(SiteIndex24) %>% slice(3:(n() - 2)) %>%   
+  dplyr::summarize(si50_2 = mean(SiteIndex24), numbersites = n())
+fwrite(sibec_calc2, "sibec_by_edatope_calc_reduced.csv")
+
+sibec_calc3 <- sibec  %>% group_by(TreeSpp, BECSiteUnit) %>%   
+  dplyr::summarize(si50 = mean(SiteIndex24), si50_sd = sd(SiteIndex24), cv = si50_sd / si50, n = n()) %>% ungroup 
+# 
+# %>% filter(n >=8) %>% 
+#   arrange(SiteIndex24) %>% slice(3:(n() - 2)) %>%   
+#   dplyr::summarize(si50_2 = mean(SiteIndex24), numbersites = n())
+fwrite(sibec_calc3, "sibec_by_siteseries_calc_reduced.csv")
+
+
+```
+
 #Explore by BGC edatopic position
 ```{r}
 #subzones <- c("IDF")
@@ -102,6 +166,7 @@ sibec3 <- sibec2 %>% group_by(BGC, SMR, SNR) %>%
   summarise(maxSIfraction = max(SIfraction, na.rm = TRUE), maxSI2 = max(maxSI, na.rm = TRUE), SI90 = quantile(SiteIndex24, probs = 1, na.rm = TRUE), SIquantile = quantile(SIfraction, probs = .75,na.rm = TRUE), numbersites = n()) %>% filter(numbersites >4) 
 edatopic_SI <- sibec3 %>% select(SMR, SNR, maxSIfraction) %>% pivot_wider(id_cols = SMR, names_from = SNR, values_from = maxSIfraction)
 edatopic_SI 
+fwrite(sibec_calc2, "sibec_by_edatope_summary.csv")
 ```
 
 ##Plot SI by DD5 for each TreeSpp for fresh and rich sites
