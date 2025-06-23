@@ -1,0 +1,108 @@
+---
+title: "Prepare edaphic sites for estimating SI50"
+author: "William H MacKenzie"
+date: "29/11/2019"
+output:
+  pdf_document: default
+  html_document: default
+---
+This script selects a number of sites per BGC and creates 40 records one for each edatopic position.
+Will need to move the attribution of predictors to points to a separate script in line with the model building script.
+This data set will be then be predicted by the SIBEC model and used to create estimates of SI50 for each edatopic position and site series within BGCs
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+options(tinytex.verbose = TRUE)
+require(tidyverse)
+require (ggplot2)
+require(data.table)
+# require(DBI)
+# library(purrr)
+# require(SIndexR)
+require(sf)
+require(terra)
+```
+
+##Import Vtrees data
+
+Create BGC point data and build predictor data
+need site_id, BGC, lat, long, elev
+```{r build grid and add elevation}
+BC.climr <- fread("../aSMR_X_rSMR/inputs/WNA_BGC_climr.csv") %>%
+  filter(!is.na(CMD)) %>%  # Remove NA values in CMD
+  filter(PERIOD == "1961_1990")# %>%  # Keep only relevant period
+  #filter(!str_detect(BGC, "_"))  # Remove any BGC strings containing "_"
+## sample 10 sites from each BGC and filter out those with < 10 sites
+BC.climr2 <- BC.climr %>%
+  group_by(BGC) %>%
+  group_map(~slice_sample(.x, n = min(10, nrow(.x))), .keep = TRUE) %>%
+  bind_rows()
+
+## for each site create a list of records for 5 levels of SNR and 8 levels of rSMR
+SNR = c("A", "B", "C", "D", "E")
+rSMR = c(0, 1, 2, 3, 4, 5, 6, 7)
+new_records <- expand.grid(SNR = SNR, rSMR = rSMR)
+BC.climr <- crossing(BC.climr2, new_records) #%>% filter(BGC == "SBSmc2")
+
+sPPTtemp <- BC.climr %>% select("id", "PPT_05","PPT_06","PPT_07","PPT_08","PPT_09" )
+BC.climr$Moist <- rowSums(sPPTtemp[,2:6] >90)
+BC.climr <- BC.climr %>% mutate(CMD = ifelse(Moist >4, CMD * 0.75, CMD))
+
+#temp2 <- temp2[temp2$Moist != "",] # only those points calculated to be moist
+#####################################
+#sibec.anal2 <- sibec.anal2[,c("id","PPT_at","PPT_wt","PAS", "CMD", "DD5")]
+#allDat2 <- cbind(wPPTtemp,CMDtemp)
+#allDat <- cbind(wPPTtemp,sPPTtemp[c("Moist")])
+#allDat <- cbind(allDat,temp,temp2) ### use this one if Moist indicator is completed above
+BC.climr$PPT.dorm <- BC.climr$PPT_at + BC.climr$PPT_wt
+BC.climr$Def <- 350 - BC.climr$PPT.dorm 
+BC.climr$Def[BC.climr$Def < 0] <- 0 #negative values set to zero = no deficit
+BC.climr$CMD <- BC.climr$CMD + BC.climr$Def
+BC.climr2 <- BC.climr %>% mutate(CMD.adj = ifelse(rSMR == 3, CMD + 125, 
+                                                  ifelse(rSMR == 2, CMD + 250,
+                                                         ifelse(rSMR == 1, CMD + 375,
+                                                                ifelse(rSMR == 0, CMD + 500,
+                                                                       ifelse(rSMR == 5, CMD/2,
+                                                                              ifelse(rSMR == 6, CMD/4,
+                                                                                     ifelse(rSMR == 7, CMD/8,
+                                                                                            ifelse(rSMR == 4, CMD, NA)))))))))%>% 
+  mutate(CMD.adj = ifelse(CMD.adj < 0, 0, CMD.adj))
+
+# Read the rules table
+rules_table <- fread("../aSMR_X_rSMR/inputs/aSMR_Rules_HalfStep_v13_7May2025.csv")
+labels <- fread("../aSMR_X_rSMR/inputs/aSMR_labels.csv")
+
+# Ensure column names are consistent
+colnames(rules_table) <- c("SMRLevel", "CMD.range", "aSMR")
+#sibec.anal.test <- sibec.anal2 %>% filter(PlotNumber == "0002801") %>% filter(TreeSpp == "Ss")
+# Merge with sibec.anal based on the rSMR field
+BC.climr3 <- BC.climr2 %>% 
+  left_join(rules_table, by = c("rSMR" = "SMRLevel")) %>%  filter(CMD.range <= CMD.adj) %>%  group_by(id, rSMR) %>% slice_max(CMD.range) %>% ungroup() %>% 
+  select(-CMD, -CMD.range) %>% data.frame %>% left_join(labels, by = c("aSMR" = "aSMR")) 
+# BC.climr <- BC.climr %>% mutate(eda2 = paste0(aSMR_label, '/', rSNRg))
+BC.climr3 <- BC.climr3 %>% select(id, BGC, Latitude = lat, DD5, rSMR, aSMR, SNR, CMD.adj, PAS, CMI, bFFP, DD18, Eref)
+fwrite(BC.climr3, "./data/Edaphic_sites_data_2025.csv")
+
+```
+```{r potenial solar radiation}
+# Load required package
+# library(meteoland)
+# 
+# # Example dataset with point locations
+# points <- data.frame(
+#   SiteID = c("A", "B", "C", "D", "E"),
+#   Latitude = c(48.5, 50.2, 51.8, 53.1, 54.7),  # Degrees North
+#   Longitude = c(-123.5, -124.2, -125.0, -126.1, -127.3),  # Degrees West
+#   Slope = c(5, 20, 35, 15, 25),  # Slope in degrees
+#   Aspect = c(90, 180, 225, 270, 360)  # Aspect in degrees (east of north)
+# )
+# 
+# xx <- meteoland::radiation_potentialRadiation(solarConstant = 1367, latrad = 48.5, slorad = -124, asprad = 90, delta = NULL)
+# # Apply potential radiation function
+# points <- points %>%
+#   mutate(PotentialRadiation = mapply(meteoland::radiation_potentialRadiation, Latitude, Slope, Aspect))
+# 
+# # View dataset with computed radiation values
+# print(points)
+```
+

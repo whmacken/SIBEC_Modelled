@@ -1,0 +1,524 @@
+---
+title: "Build predictive SIBEC model"
+author: "William H MacKenzie"
+date: "21/05/2025"
+format:
+  typst:
+    toc: false
+    toc-depth: 1
+    toc-title: Contents
+    section-numbering: 1.1.1
+    columns: 1
+editor: source
+execute:
+  echo: false
+  error: false
+  warning: false
+  message: false
+  fig.width: 6
+  fig.height: 4
+  fig.align: 'center'
+  fig.cap: true
+  fig.pos: H
+  out.width: '100%'
+  dev: pdf
+  fig.ext: pdf
+  cache: false
+  fig.retina: 2
+  dpi: 600
+  fig.asp: 1.5
+  fig.path: "./figures/"
+---
+
+# Build SIBEC prediction model
+Uses SIBEC data plus other bounding data sets to create a machine learning regression model of site index and applies to build a predicted SIBEC and a more expansive model for use in climate change forecasting.
+May also want a survival model to predict mortality and combine the two models into a predicted 'volume' model for use in the portfolio analysis.
+This is probably required with the AMAT and other observation that often a few surviving individuals will have surprising high site index values.
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+#options(tinytex.verbose = TRUE)
+require(tidyverse)
+#require (ggplot2)
+require (assertr)
+require(data.table)
+require(climr)
+require(DBI)
+library(purrr)
+require(tictoc)
+require(tidymodels)
+require(vip)
+require(randomForest)
+library(knitr)
+require(pdp)
+```
+
+##Import SIBEC data
+
+Read in SIBEC data from a .csv table export of a _Trees table from the VTrees database
+
+```{r SIBEC data import}
+sibec.anal <- fread("./data/SIBEC_Analysis_data_2025.csv") %>%
+ # mutate(SNR = as.numeric(factor(rSNR, levels = c("A", "B", "C", "D", "E"), ordered = TRUE))) %>% 
+  mutate(SNR = as.numeric(SNR))%>% 
+  mutate(rSMR = as.numeric(rSMR))%>%
+  mutate(
+    DD5 = as.numeric(DD5),
+    CMD.adj = as.numeric(CMD.adj))
+predictors <- c("DD5","aSMR", "SNR", "CMD.adj", "PAS", "CMI", "bFFP", "DD18", "Eref","rSMR")#,
+###For random forests probably need some bounding data otherwise no extrapolation into sites outside the training data
+###Ensemble models may be better for extrapolation but challenges in getting to prediction 
+
+sibec.coast <- sibec.anal %>% filter(Zone %in% c("CWH", "MH", "CDF"))
+sibec.interior <- sibec.anal %>% filter(!Zone %in% c("CWH", "MH", "CDF")) 
+## select set for running models
+sibec.tst = sibec.anal
+
+```
+
+## Generate boxplots of site index by site series with phases
+This produces a facetted boxplot graph for each species in a BGC showing site index by site series
+
+```{r boxplot species by rSMRxSNR}
+
+SI_spp <- sibec.tst %>% arrange(BGC)#%>% filter(grepl("^SBSmc2", BECSiteUnit))
+SI_spp <- drop_na (SI_spp)
+# Create separate plots for each BGC
+unique_bgcs <- sort(unique(SI_spp$BGC))
+unique_bgcs = "CWHvm1"
+for (bgc in unique_bgcs) {
+  # Filter data for the current BGC
+  SI_spp_subset <- SI_spp %>% filter(BGC == bgc)
+  
+  # Create the plot
+SI_plot <- ggplot(SI_spp_subset, aes(x=eda1, y=SI50, fill=rSNRg)) +
+  geom_boxplot() +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(size = 8,angle = 90, hjust = 1, vjust = 0.5),
+    panel.grid.major.x = element_blank(),
+    panel.grid.major.y = element_line(color = "gray80")
+  ) +
+  ggtitle(paste0("Site Index by edatopic position ", bgc)) +
+  facet_wrap(~TreeSpp)+
+  coord_cartesian(ylim = c(0, 50))
+
+  plot(SI_plot)
+  # Save the plot
+  #ggsave(filename = paste0("./outputs/SiteIndex_", bgc, "_rSMR.png"), plot = SI_plot, width = 8, height = 6)
+}
+
+```
+## flag outliers
+## probably cannot use since its a linear model based approach and the expected distribution is not
+```{r flag and remove outliers}
+sibec.lm <- sibec.tst 
+    #aspect.class = as.factor(aspect.class))
+sibec.lm <- sibec.lm %>% select(PlotNumber, TreeSpp, SI50, predictors) #SI50, DD5, rSMR, aSMR, SNR, CMD.adj, PAS, CMI, bFFP, DD18,  Eref)#Latitude,
+
+sibec.outliers <- sibec.lm %>%
+  group_by(TreeSpp) %>%
+  dplyr::mutate(
+    model = list(lm(reformulate(predictors, response = "SI50"), data = cur_data())),# + Latitude
+#    model = list(lm(SI50 ~ DD5 + rSMR + aSMR + SNR + CMD.adj + PAS + CMI + bFFP + DD18+ Eref, data = cur_data())),# + Latitude
+    cooks_distance = cooks.distance(model[[1]]),
+    is_outlier = cooks_distance > (4 / n())  # Standard threshold for large influence
+#is_outlier = cooks_distance > (1 / n())  # Standard threshold for large influence
+  ) %>%
+  unnest(c(cooks_distance, is_outlier))
+
+# View flagged outliers
+#outliers <- sibec.outliers %>% filter(is_outlier == TRUE) %>% select(PlotNumber, TreeSpp, SI50, cooks_distance, is_outlier)
+outliers <- sibec.outliers %>% filter(cooks_distance >.5 ) %>% select(PlotNumber, TreeSpp, SI50, cooks_distance, is_outlier)
+
+
+ggplot(outliers, aes(x = PlotNumber, y = cooks_distance)) +
+  geom_point() +
+  geom_hline(yintercept = (4 / nrow(sibec.lm)), color = "red", linetype = "dashed") +
+  labs(title = "Cook's Distance for Each PlotNumber",
+       x = "PlotNumber",
+       y = "Cook's Distance") +
+  theme_minimal()
+sibec.lm <- sibec.lm %>% filter(!PlotNumber %in% outliers$PlotNumber) #%>% select(-PlotNumber)
+# count the number of rows per tree species
+n_training <- sibec.lm %>% filter(SI50>0) %>%  group_by(TreeSpp) %>% summarise(count = n()) %>% arrange(desc(count))
+#filter species with less than 50 observations
+sibec.lm <- sibec.lm %>% filter(TreeSpp %in% n_training$TreeSpp[n_training$count > 50])
+ ##reduce sibec.lm to remove outliers
+
+```
+## Build Random Forest models and review variable importance and partial dependence plots
+```{r build randomforests models}
+# library(tidymodels)
+# library(tidyverse)
+# library(tibble)
+# library(dplyr)
+# library(vip)
+# library(ggplot2)
+# 
+# df <- sibec.lm #%>% filter(TreeSpp == "Fd")
+# # Group the dataset and create models
+# species_split <- split(df, df$TreeSpp) 
+# # Base recipe setup for reuse
+# 
+# # Initialize storage lists
+# results_list <- list()
+# summary_list <- list()
+# predictions_list <- list()
+# 
+# # Iterate through species
+# for (species_name in names(species_split)) {
+#   df <- species_split[[species_name]]
+# 
+#   if (nrow(df) < 500) next
+# 
+#   # Create folds
+#   set.seed(123)
+#   cv_folds <- vfold_cv(df, v = 5)
+# 
+#   # Recipe
+#   rec <- recipe(SI50 ~ ., data = df %>% select(all_of(c("SI50", predictors)))) %>%
+#       update_role(rSMR, new_role = "id variable")
+#   # Random forest spec
+#   rf_spec <- rand_forest(trees = 500) %>% #mtry = tune(), min_n = tune()
+#     set_engine("ranger", importance = "impurity") %>%
+#     set_mode("regression")
+# 
+#   # Workflow
+#   wf <- workflow() %>%
+#     add_model(rf_spec) %>%
+#     add_recipe(rec)
+# 
+#   # Tune the model
+#   rf_tune <- tune_grid(
+#     wf,
+#     resamples = cv_folds,
+#     grid = 5,
+#     metrics = metric_set(rmse, rsq)
+#   )
+# 
+#   # Select best and finalize
+#   best_params <- tune::select_best(rf_tune)
+#   final_wf <- finalize_workflow(wf, best_params)
+# 
+#   # Fit final model
+#   final_fit <- fit(final_wf, data = df)
+# # Save each model to disk by species name
+# # model_path <- file.path("models", paste0("rf_model_", species_name, ".rds"))
+# # write_rds(final_fit, model_path)
+# 
+#   # Save results
+#   results_list[[species_name]] <- final_fit
+# 
+#   # Metrics summary
+#   rsq_val <- collect_metrics(rf_tune) %>%
+#     filter(.metric == "rsq") %>%
+#     summarise(Variance_Explained = 100 * mean(mean)) %>%
+#     pull(Variance_Explained)
+# 
+#   summary_list[[species_name]] <- data.frame(
+#     TreeSpp = species_name,
+#     Variance_Explained = rsq_val
+#   )
+# 
+#   # Predictions
+#   preds <- predict(final_fit, df) %>%
+#     bind_cols(df %>% select(PlotNumber, TreeSpp, SI50)) %>%
+#     rename(Predicted_SI50 = .pred)
+# 
+#   predictions_list[[species_name]] <- preds
+# }
+# 
+# # Save the entire model list as one object
+# saveRDS(results_list, file = "models/species_rf_models.rds")
+# 
+# # Combine results
+# rf_summary <- do.call(rbind, summary_list)
+# rf_predictions_df <- do.call(rbind, predictions_list)
+# 
+# 
+# # Load the full model list
+# all_models <- readRDS("models/species_rf_models.rds")
+# 
+# # Loop and plot VIPs
+# for (species_name in names(all_models)) {
+#   model <- all_models[[species_name]]
+# 
+#   # Extract the fitted ranger model from the workflow
+#   rf_fit <- model$fit$fit  # model is a workflow
+#   
+#   # Plot VIP
+#   vip_plot <- vip(rf_fit, num_features = 10, geom = "col", aesthetics = list(fill = "steelblue")) +
+#     ggtitle(paste("VIP for", species_name)) +
+#     theme_minimal()
+# 
+#   print(vip_plot)  # Display in RStudio or output device
+# 
+#   # Optionally save to file
+#   #ggsave(filename = paste0("vip_plots/vip_", species_name, ".png"), plot = vip_plot, width = 8, height = 5)
+# }
+# 
+# # Generate ggplot with corrected species assignments
+# gt::gt(rf_summary)
+# ggplot(rf_predictions_df, aes(x = SI50, y = Predicted_SI50, color = TreeSpp)) +
+#   geom_point(alpha = 0.6) +
+#   geom_smooth(method = "lm", se = FALSE, color = "blue") +
+#   geom_abline(slope = 1, intercept = 0, linetype = "dashed") +
+#   labs(title = "Predicted vs Observed SI50 from RandomForests",
+#        x = "Observed SI50",
+#        y = "Predicted SI50",
+#        color = "Tree Species") +
+#   theme_minimal() +
+#   facet_wrap(~TreeSpp)
+
+```
+```{r}
+#Explore plots where >3m difference between predicted and observed
+outlier.preds <- rf_predictions_df %>% filter(abs(SI50 - Predicted_SI50) > 3)
+```
+
+```{r single partial dependence plots}
+# species = "Ba"
+# predictor_var <- "aSMR"
+# model <- models_rf[[species]]
+# sibec.spp <- sibec.lm %>% filter(TreeSpp == species)
+#   pdp_plot <- pdp::partial(
+#     object = rf_fit,
+#     pred.var = predictor_var,
+#     plot = TRUE,
+#     plot.engine = "ggplot2",
+#     train = sibec.spp
+#   )+
+#     labs(title = paste("Partial Dependence Plot for", species, "on", predictor_var)) +
+#     theme_minimal()
+# 
+#     # Print the plot
+#     print(pdp_plot)
+
+```
+```{r partial dependence plots}
+# library(pdp)
+# library(ggplot2)
+# species_list = c("Fd")
+# # Define species list
+# species_list <- names(all_models)
+# 
+# # Loop through each species
+# for (species in species_list) {
+#   
+#   # Get the model for the species
+#   model <- all_models[[species]]
+#   
+#   # Extract top 5 predictors based on importance
+#   rf_fit <- extract_fit_parsnip(model)$fit
+# 
+#   importance_data <- as.data.frame(rf_fit$variable.importance) %>%
+#   tibble::rownames_to_column("Variable") %>%
+#   rename(Importance = 2) %>%
+#   arrange(desc(Importance))
+#   top_predictors <- importance_data %>% 
+#   slice_max(order_by = Importance, n = 5) %>% 
+#   pull(Variable)
+#   
+#   # Filter training data for the species
+#   sibec.spp <- sibec.lm %>% filter(TreeSpp == species)
+#   predictor_var <- c("DD5")#, "aSMR", "rSMR", "SNR", "CMD.adj", "PAS", "CMI", "bFFP", "DD18", "Eref") #, "Latitude"
+#   # Loop through top 5 predictors for the current species
+#   for (predictor_var in top_predictors) {
+#      # Display status message
+#     message(paste("Running PDP for Species:", species, "Predictor:", predictor_var))
+#     flush.console()
+#     # Ensure predictor is numeric
+#     sibec.spp <- sibec.spp %>% mutate(across(all_of(predictor_var), as.numeric))
+#      # Generate partial dependence plot
+#   pdp_plot <- pdp::partial(
+#     object = rf_fit,
+#     pred.var = predictor_var,
+#     plot = TRUE,
+#     plot.engine = "ggplot2",
+#     train = sibec.spp
+#   )+
+#     labs(title = paste("Partial Dependence Plot for", species, "on", predictor_var)) +
+#     theme_minimal()
+# 
+#     # Print the plot
+#     print(pdp_plot)
+#   }
+# }
+```
+
+##Build ensemble Model by TreeSpp with extra data
+```{r}
+library(tidymodels)
+#library(glmnet)  # Lasso regression
+library(xgboost)  # GAM boosting
+library(ranger)  # Random forest
+library(kernlab)  # SVM
+library(stacks)  # Model stacking
+library(dplyr)
+library(gt)
+options(warn = -1)
+set.seed(123)
+training_data <- sibec.lm #%>% filter(TreeSpp %in% c("Fd", "Pl"))
+# Split dataset by species
+species_list <- split(training_data, training_data$TreeSpp)
+species_results <- list()
+species_predictions <- list()
+model_list <- list()
+
+for (species in names(species_list)) {
+  train_data <- species_list[[species]]
+  
+  if (nrow(train_data) > 500) {
+    cv_folds <- vfold_cv(train_data, v = 10)
+    
+    model_recipe <- recipe(reformulate(predictors, response = "SI50"), data = train_data) %>%
+      update_role(aSMR, rSMR, new_role = "id variable")
+    
+    gamboost_wf <- workflow() %>%
+      add_model(boost_tree(trees = 101) %>% set_engine("xgboost") %>% set_mode("regression")) %>%
+      add_recipe(model_recipe)
+    
+    rf_wf <- workflow() %>%
+      add_model(rand_forest(trees = 500) %>% set_engine("ranger", importance = "permutation") %>% set_mode("regression")) %>%
+      add_recipe(model_recipe)
+    
+    svm_wf <- workflow() %>%
+      add_model(svm_rbf() %>% set_engine("kernlab") %>% set_mode("regression")) %>%
+      add_recipe(model_recipe)
+    
+    stack_control <- control_resamples(save_pred = TRUE, save_workflow = TRUE)
+    
+    gamboost_res <- fit_resamples(gamboost_wf, resamples = cv_folds, metrics = metric_set(mae, rmse, rsq), control = stack_control)
+    rf_res <- fit_resamples(rf_wf, resamples = cv_folds, metrics = metric_set(mae, rmse, rsq), control = stack_control)
+    svm_res <- fit_resamples(svm_wf, resamples = cv_folds, metrics = metric_set(mae, rmse, rsq), control = stack_control)
+    
+    ensemble_stack <- stacks() %>%
+      add_candidates(gamboost_res) %>%
+      add_candidates(rf_res) %>%
+      add_candidates(svm_res) %>%
+      blend_predictions() %>%
+      fit_members()
+     # Save results
+  model_list[[species]] <- ensemble_stack 
+    # Save the model
+    saveRDS(ensemble_stack, file = paste0("./models/ensemble_model_", species, ".rds"))
+    
+    # Extract predictions on training data
+    preds <- ensemble_stack %>%
+      predict(new_data = train_data) %>%
+      bind_cols(train_data %>% select(SI50)) %>%
+      mutate(TreeSpp = species)
+    
+    species_predictions[[species]] <- preds
+    
+    # Collect performance metrics
+    metrics_df <- bind_rows(
+      gamboost = collect_metrics(gamboost_res),
+      rf = collect_metrics(rf_res),
+      svm = collect_metrics(svm_res),
+      .id = "Model"
+    ) %>% mutate(TreeSpp = species)
+    
+    species_results[[species]] <- metrics_df
+  }
+}
+
+# Save the entire model list as one object
+saveRDS(model_list, file = "models/all_species_ensemble_models.rds")
+# Combine metrics and predictions
+
+final_metrics <- bind_rows(species_results)
+variance_explained <- final_metrics %>% filter(.metric == "rsq") %>% 
+  # group_by(TreeSpp, Model) %>%
+  # summarise(Variance_Explained = mean(.metric)) %>%
+  # ungroup() %>%
+  mutate(Variance_Explained = round(mean * 100, 2)) %>% select(TreeSpp, Model, Variance_Explained)
+gt::gt(variance_explained)
+
+all_predictions <- bind_rows(species_predictions)
+
+
+# Save predictions to Excel
+write_xlsx(all_predictions, "Measured_vs_Predicted_SI50.xlsx")
+
+# Optional: Plot measured vs predicted
+ggplot(all_predictions, aes(x = SI50, y = .pred)) +
+  geom_point(alpha = 0.4, size = 1) +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "darkblue") +
+  facet_wrap(~TreeSpp, scales = "free") +
+  labs(title = "Measured vs Predicted SI50 by Tree Species",
+       x = "Measured SI50",
+       y = "Predicted SI50") +
+  theme_minimal()
+```
+##Theoretical relationship between climatic potential SI and DD5
+```{r}
+# library(sn)# Load skew-normal distribution functions
+# require(scales) 
+# library(VGAM)  # Load Gompertz functions
+# xi <- 0.25       # Median location
+# omega <- 0.45    # Standard deviation
+# alpha <- -5       # Positive skew (adjust as needed)
+# set.seed(123)  # Ensures reproducibility
+# # Generate skewed normal data
+# data <- rsn(1000, xi = xi, omega = omega, alpha = alpha)
+# data_rescaled <- rescale(data, to = c(0, 2000))
+# 
+# # Compute density manually
+# density_data <- density(data_rescaled)
+# density_data$y <- rescale(density_data$y, to = c(0, 80))  # Rescale to 0-30
+# 
+# df <- data.frame(DD5 = data_rescaled)
+# 
+# ggplot(df, aes(x = DD5)) +
+#   geom_histogram(aes(y = ..count..), bins = 50, fill = "steelblue", color = "black", alpha = 0.7) +
+#   geom_line(data = data.frame(x = density_data$x, y = density_data$y), aes(x = x, y = y), color = "red", linewidth = 1.5) +
+#   labs(title = "Skewed Normal Distribution with Rescaled Density",
+#        x = "DD5",
+#        y = "Site Index @ 50 years") +
+#   theme_minimal()
+```
+```{r}
+# shape_param <- .001  # Adjust for skewness
+# scale_param <- 1  # Determines spread
+# 
+# #set.seed(123)  # Ensure reproducibility
+# data_gompertz <- rgompertz(1000, shape = shape_param, scale = scale_param)
+# 
+# hist(data_gompertz, breaks = 50, probability = TRUE, col = "steelblue", border = "black",
+#      main = "Simulated Gompertz Distribution",
+#      xlab = "Value", ylab = "Density")
+# 
+# # Overlay density curve
+# lines(density(data_gompertz), col = "red", lwd = 2)
+```
+## test best fit to data
+```{r}
+# library(VGAM)  # For Gompertz fitting
+# library(sn)    # For skewed normal fitting
+# 
+# # Fit Gompertz distribution using maximum likelihood estimation (MLE)
+# gompertz_fit <- vglm(data_rescaled ~ 1, family = gompertz, data = data.frame(data_rescaled))
+# 
+# # Fit skewed normal distribution using MLE
+# sn_fit <- selm(data_rescaled ~ 1, family = "SN")
+# AIC_gompertz <- AIC(gompertz_fit)
+# AIC_sn <- AIC(sn_fit)
+# 
+# data.frame(Model = c("Gompertz", "Skewed Normal"),
+#            AIC = c(AIC_gompertz, AIC_sn)) %>%
+#   arrange(AIC)  # Lower AIC means better fit
+# ks_gompertz <- ks.test(data_rescaled, "pgompertz", coef(gompertz_fit)[1], coef(gompertz_fit)[2])
+# ks_sn <- ks.test(data_rescaled, "psn", coef(sn_fit)$param["xi"], coef(sn_fit)$param["omega"])
+# 
+# data.frame(Model = c("Gompertz", "Skewed Normal"),
+#            KS_p_value = c(ks_gompertz$p.value, ks_sn$p.value)) %>%
+#   arrange(desc(KS_p_value))  # Higher p-value suggests better fit
+```
+
+
+
+
+

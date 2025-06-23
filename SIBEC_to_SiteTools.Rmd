@@ -1,0 +1,150 @@
+---
+title: "Update SiteSeries by edatopic space"
+author: "William H MacKenzie"
+date: "05/06/2025"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+Mostly for the coast guide update old site series to new based on edatopic position
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+options(tinytex.verbose = TRUE)
+require(tidyverse)
+require (ggplot2)
+require(data.table)
+require(DBI)
+library(purrr)
+require(SIndexR)
+```
+
+##Import Vtrees data
+
+Read in SIBEC data from ACCESS database
+
+```{r Vtrees data import}
+sibec_master <- dbConnect(odbc::odbc(), .connection_string = "Driver={Microsoft Access Driver (*.mdb, *.accdb)}; DBQ=D:/OneDrive - Government of BC/SIBEC_files/SIBEC_2025_VPRO_cleaned.accdb;")
+sibec  <- dbReadTable(sibec_master, "SIBEC_All_2025_ENV")
+sibec.tree  <- dbReadTable(sibec_master, "SIBEC_All_2025_Trees")
+sibec.info  <- dbReadTable(sibec_master, "SIBEC_All_2025_TreePlot")
+#sibec.orig <- dbReadTable(sibec_master, "tblMensuration")
+#plot.naming <- dbReadTable(sibec_master, "tblPlotNUmbers")
+#SI_raw  <- dbReadTable(sibec_master, "SIBEC_Analysis_Data")
+dbDisconnect(sibec_master)
+sibec.ss <- sibec.info %>% select(PlotNumber, BECSiteUnit, Date)
+sibec.tree$TreeSpp <- sibec.tree$TreeSpp %>% recode(
+  "Sw" = "Sx", "sw" = "Sx", "Se" = "Sx", "SX" = "Sx", "HW" = "Hw",
+  "EP"= "Ep", "FD" = "Fd", "Fd " = "Fd", "PL" = "Pl")
+SI_clean <- merge(sibec.tree, sibec.ss, by = "PlotNumber") %>%
+  mutate(Zone = gsub("[^A-Z]", "", BECSiteUnit)) %>%
+  mutate(BGC = str_extract(BECSiteUnit, "^[^?]+")) %>% 
+  mutate(TreeSpp = ifelse(startsWith(BECSiteUnit, "ESSF") & TreeSpp == "Sx", "Se", 
+                     ifelse(!Zone %in% c("ESSF") & TreeSpp == "Sx", "Sw", TreeSpp)))
+SI_clean <-  SI_clean %>% select(Zone, BGC, PlotNumber,TreeSpp, TreeNum, CountAge, TotalHtCalc) %>% dplyr::rename(`BHAge` = CountAge, `Height` = TotalHtCalc ) %>% arrange(desc(PlotNumber))%>% 
+  mutate(PlotNumber= paste0("SI_",PlotNumber)) ## so that leading zeros are not dropped - need to remove the SI_ after reimport from sitetools
+write.csv(SI_clean, "./for_sitetools/SIBEC_2024_ForSiteTools_v2.csv", row.names = FALSE)
+```
+
+```{r}
+# Read in sitetools SI for update of SIBEC data
+sitetools <- fread("./sitetools_calculated/SIBEC_SI50_19June2025.csv") %>% mutate(PlotNumber = str_remove(PlotNumber, "^SI_")) %>% dplyr::rename(Zone = Location)
+sitetools$Species <- sitetools$Species %>% recode(
+  "Sw" = "Sx", "Se" = "Sx")
+  # remove the SI_ to the plot number for sitetools
+sibec_master <- dbConnect(odbc::odbc(), .connection_string = "Driver={Microsoft Access Driver (*.mdb, *.accdb)}; DBQ=D:/OneDrive - Government of BC/SIBEC_files/SIBEC_2025_VPRO_cleaned.accdb;")
+sibec  <- dbReadTable(sibec_master, "SIBEC_All_2025_ENV")
+sibec.tree  <- dbReadTable(sibec_master, "SIBEC_All_2025_Trees")
+sibec.info  <- dbReadTable(sibec_master, "SIBEC_All_2025_TreePlot")
+dbWriteTable(sibec_master, "Sitetools_SI50", sitetools, overwrite = TRUE, batch_rows = 1) # write the sitetools SI50 to the SIBEC database
+#SI_raw  <- dbReadTable(sibec_master, "SIBEC_Analysis_Data")
+dbDisconnect(sibec_master)
+
+##update the SI50 field by query in the SIBEC database in ACCESS
+```
+
+
+Use SIndexR package to generate SI50
+this package has too many errors (June 2025)so do not use until updated 
+```{r}
+# library(SIndexR)
+# # Loop through dataset to calculate Site Index
+# dataset <- SI_clean %>%
+#   rowwise() %>%
+#   mutate(
+#     SpecIndex = SIndexR_SpecRemap(sc = TreeSpp, fiz = "C"),  # Coast curves
+#     SIndexR_coast = round(SIndexR_HtAgeToSI(
+#       curve = SIndexR_DefCurve(SpecIndex),  # Get default curve
+#       age = BHAge,
+#       ageType = 1,  # 1 = Age at breast height
+#       height = Height,
+#       estType = 1)$output, 2)  # Round to 2 decimals
+#   ) %>% 
+#     mutate(
+#     SpecIndex = SIndexR_SpecRemap(sc = TreeSpp, fiz = "I"),  # Interior curves
+#     SIndexR_interior = round(SIndexR_HtAgeToSI(
+#       curve = SIndexR_DefCurve(SpecIndex),  # Get default curve
+#       age = BHAge,
+#       ageType = 1,  # 1 = Age at breast height
+#       height = Height,
+#       estType = 1)$output, 2))%>%
+#   mutate(
+#     SpecIndex = SIndexR_SpecRemap(sc = TreeSpp, fiz = "C"),  # Coast GI curves
+#     SIndexR_coast_GI = round(SIndexR_HtAgeToSI(
+#       curve = SIndexR_DefGICurve(SpecIndex),  # Get default curve
+#       age = BHAge,
+#       ageType = 1,  # 1 = Age at breast height
+#       height = Height,
+#       estType = 1)$output, 2)  # Round to 2 decimals
+#   ) %>% 
+#     mutate(
+#     SpecIndex = SIndexR_SpecRemap(sc = TreeSpp, fiz = "I"),  # Interior GI curves
+#     SIndexR_interior_GI = round(SIndexR_HtAgeToSI(
+#       curve = SIndexR_DefGICurve(SpecIndex),  # Get default curve
+#       age = BHAge,
+#       ageType = 1,  # 1 = Age at breast height
+#       height = Height,
+#       estType = 1)$output, 2))
+# 
+# sibec.anal <- merge(dataset, sibec.ss, by = c("PlotNumber")) %>% mutate(BGC = sub("/.*", "", BECSiteUnit), Zone = gsub("[^A-Z]", "", BECSiteUnit)) %>%
+#   mutate(SI50 = ifelse(Zone %in% c("CWH", "MH", "CDF") & BHAge >50, SIndexR_coast, 
+#                   ifelse(!Zone %in% c("CWH", "MH", "CDF") & BHAge >50, SIndexR_interior,
+#                       ifelse(Zone %in% c("CWH", "MH", "CDF") & BHAge <=50 & SIndexR_coast_GI >0, SIndexR_coast_GI,                           ifelse(!Zone %in% c("CWH", "MH", "CDF") & BHAge <=50 & SIndexR_interior_GI >0, SIndexR_interior_GI,
+#                           ifelse(Zone %in% c("CWH", "MH", "CDF") & BHAge <=50 & SIndexR_coast_GI <0, SIndexR_coast,                           ifelse(!Zone %in% c("CWH", "MH", "CDF") & BHAge <=50 & SIndexR_interior_GI <0, SIndexR_interior, NA)))))))
+# 
+#          sibec.anal <- sibec.anal %>% mutate(SI50vsSiteIndex = round(SI50 - SiteIndex, 2), SI50vsSiteIndex24 = round(SI50 - SiteIndex24, 2))
+# sibec.anal <- sibec.anal %>% select(Zone, BGC, BECSiteUnit, PlotNumber, Date, TreeSpp, TreeNum, BHAge, Height, SiteIndex, SiteIndex24, SI50, SI50vsSiteIndex, SI50vsSiteIndex24,  SIndexR_interior, SIndexR_coast, SIndexR_interior_GI, SIndexR_coast_GI) %>%
+#   mutate(PlotNumber = as.character(PlotNumber)) %>% arrange(PlotNumber)
+# fwrite(sibec.anal, "./data/SIBEC_data_2025_cleaned.csv", row.names = FALSE)
+# sibec.tocheck <- 
+# mismatched_SI <- sibec.anal %>% filter(abs(SI50vsSiteIndex)>.5 |  SI50vsSiteIndex24 > 0.5)
+# sibec.tocheck <-  left_join(mismatched_SI, plot.naming, by = c("PlotNumber" = "PlotNumber"))# 
+# sibec.orig <- sibec.orig %>% 
+#    mutate(PlotID = as.character(PlotID))# %>% 
+#   # select(PlotID, TreeNUM, TreeSpp, BHAge, Height, Date) %>% 
+#   # mutate(TreeSpp = recode(TreeSpp, "Sw" = "Sx", "sw" = "Sx", "Se" = "Sx", "SX" = "Sx", "HW" = "Hw",
+#   #                         "EP"= "Ep", "FD" = "Fd", "Fd " = "Fd", "PL" = "Pl")) %>% 
+#   # mutate(Date = as.Date(Date, format="%Y-%m-%d"))
+# sibec.tocheck2 <- left_join(sibec.tocheck, sibec.orig, by = c("PlotID" = as.character("PlotID"), "TreeNum" = "TreeNUM", "TreeSpp" = "TreeSpp")) %>% filter(abs(SI50vsSiteIndex) > 0.5) %>% 
+#   select(PlotNumber, PlotID, TreeNum, TreeSpp, BHAge, Height.x,  AgeBH, TotalHtCalc, SiteIndex, SiteIndex24, SI50, SI50vsSiteIndex, SI50vsSiteIndex24,  SIndexR_interior, SIndexR_coast, SIndexR_interior_GI, SIndexR_coast_GI,Date, Zone, BGC, BECSiteUnit) %>% rename(Age.sibec = BHAge, Ht.sibec = Height.x, Age.orig = AgeBH, Ht.orig = TotalHtCalc)%>%
+#   mutate(PlotNumber = as.character(PlotNumber)) %>% arrange(PlotNumber)
+# fwrite(sibec.tocheck2, "./data/SIBEC_mismatched_SI50.csv", row.names = FALSE)
+# %>% select(PlotNumber, TreeSpp, BHAge, Height, SI50, SI50_SiteIndex, SI50_SiteIndex24)
+### There are lots of pre-2012 plots with no original SiteIndex values. These are likely a problem (not real trees but cross matched incorrectly) Removed from databsae
+## they often show up as duplicate treenums in plots
+# sibec.anal2 <- sibec.anal %>% filter(Date<"2012-01-01" & !is.na(SiteIndex)| Date>"2012-01-01")
+# sibec.remove <- sibec.anal %>% filter(Date<"2012-01-01" & is.na(SiteIndex)) %>% mutate(PlotNumber = as.character(PlotNumber))
+
+# fwrite(sibec.remove, "./data/SIBEC_tree_records_to_remove.csv", row.names = FALSE)
+
+## Some plots have duplicate TreeNums. I spot checked these in the orginal VENUS data set at these dups seem to be legitimate records and not errors
+# sibec.dups <- sibec.anal2 %>% group_by(PlotNumber, TreeNum) %>% filter(n() > 1) 
+# sibec.check <- sibec.dups %>% filter(Date<"2012-01-01") %>% left_join(plot.naming)# 
+# sibec.orig <- sibec.orig %>% mutate(PlotID = as.character(PlotID))
+# sibec.weird <- left_join(sibec.check, sibec.orig, by = c("PlotID" = "PlotID", "TreeNum" = "TreeNUM", "TreeSpp" = "TreeSpp"))
+
+```
+
+

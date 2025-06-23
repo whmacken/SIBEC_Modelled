@@ -1,0 +1,242 @@
+---
+title: "Add potential predictors to sibec plots"
+author: "William H MacKenzie"
+date: "15/06/2025"
+output:
+  pdf_document: default
+  html_document: default
+---
+# Add climate and site predictors to training data points
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+options(tinytex.verbose = TRUE)
+require(tidyverse)
+require (ggplot2)
+require(data.table)
+require(DBI)
+library(purrr)
+require(SIndexR)
+require(climr)
+require(tictoc)
+require(spatialEco)
+```
+
+## Read in SIBEC data from ACCESS database
+
+```{r SIBEC data import}
+# # Read in sitetools SI for update of SIBEC data
+# sitetools <- fread("./sitetools_calculated/SIBEC_SI50_15June2025.csv") %>% mutate(PlotNumber = str_remove(PlotNumber, "^SI_")) %>% dplyr::rename(Zone = Location)# remove the SI_ to the plot number for sitetools
+sibec_master <- dbConnect(odbc::odbc(), .connection_string = "Driver={Microsoft Access Driver (*.mdb, *.accdb)}; DBQ=D:/OneDrive - Government of BC/SIBEC_files/SIBEC_2025_VPRO_cleaned.accdb;")
+sibec  <- dbReadTable(sibec_master, "SIBEC_All_2025_ENV")
+sibec.tree  <- dbReadTable(sibec_master, "SIBEC_All_2025_Trees")
+sibec.info  <- dbReadTable(sibec_master, "SIBEC_All_2025_TreePlot")
+#sibec.bgc <- dbReadTable(sibec_master, "SIBEC_BGC_2025")
+#dbWriteTable(sibec_master, "Sitetools_SI50", sitetools, overwrite = TRUE, batch_rows = 1) # write the sitetools SI50 to the SIBEC database
+#SI_raw  <- dbReadTable(sibec_master, "SIBEC_Analysis_Data")
+dbDisconnect(sibec_master)
+sibec.info <- sibec.info %>% mutate(PlotNumber, BECSiteUnit)# remove the SI_ to the plot number for sitetools
+## remove some remaining problems with the old data
+sibec.tree2 <- sibec.tree %>% mutate(diffSI = ifelse(!is.na(SiteIndex) & abs(SiteIndex - SI50)>1, "diff", "same")) %>% filter(diffSI == "same") %>% select(-diffSI)
+#sibec.anal <- fread("./data/SIBEC_data_2025_cleaned.csv")
+sibec.env <- left_join(sibec, sibec.info) %>% select(PlotNumber, BECSiteUnit, MoistureRegime, NutrientRegime, Latitude, Longitude, Elevation, SlopeGradient, Aspect) %>%   
+  mutate(BGC = str_extract(BECSiteUnit, "^[^/]+")) %>%   mutate(Zone = str_extract(BECSiteUnit,"[A-Z]+"))#, Aspect, SlopeGradient) %>% mutate_if(is.integer, as.numeric) %>% 
+  #mutate(aspect.class = ifelse(SlopeGradient <= 20, "Gradual",
+                           #ifelse(Aspect == 0, "Flat",    
+                             #ifelse(Aspect == 999, "Flat",
+                                 # ifelse(Aspect >= 315 | Aspect < 90, "Cold",
+                                 #      ifelse(Aspect >= 90 & Aspect < 135, "Neutral",
+                                 #             ifelse(Aspect >= 135 & Aspect < 290, "Warm",
+                                 #                    ifelse(Aspect >= 290 & Aspect < 315, "Neutral", NA))))))#))
+                                                           
+xx <- unique(sibec.tree$TreeSpp)
+#sibec.anal <- merge(sibec.tree, sibec.info, by = c("PlotNumber")) 
+sibec.anal <- merge(sibec.tree, sibec.env, by = c("PlotNumber")) %>%  dplyr::rename(`BHAge` = CountAge, `Height` = TotalHtCalc )%>% 
+  select(PlotNumber, TreeSpp, Zone, BGC, SS_NoSpace = BECSiteUnit, MoistureRegime, NutrientRegime, Latitude, Longitude, Elevation, SlopeGradient, Aspect, SI50) %>% drop_na()
+```
+## Update SIBEC classification
+```{r}
+# Update the SIBEC BGC based on overlap BGCv13
+# Assign to Site Series based on edatopic
+
+```
+
+
+### Read in other data sources
+AMAT
+Off-site trials
+
+```{r AMAT data}
+# Read in the AMAT data
+amat.sibec <- fread("./data/AMAT_SI50_for_SIBEC.csv") %>% mutate(MoistureRegime = as.character(MoistureRegime), NutrientRegime = as.character(NutrientRegime)) %>% filter(SI50>0)
+
+sibec.anal <- bind_rows(sibec.anal, amat.sibec)
+```
+
+
+## Synthetic data to fill in the missing edaphic space and out of climatic range
+Use grid points from modelled_SIBEC_data_prep scripts
+```{r}
+spp.list = unique(sibec.anal$TreeSpp)
+bgc.list = unique(sibec.anal$BGC)
+#synth.dat <- fread("./data/Edaphic_sites_data_2025.csv")
+synth.dat <- fread("D:/OneDrive - Government of BC/CommonTables/BGCv13_3_2km_gridpts.csv") %>% slice_sample(n = 3, by="BGC") %>% select(PlotNumber = id, BGC, Latitude = ycoord, Longitude = xcoord, Elevation = elev) %>% mutate(Zone = str_extract(BGC, "[A-Z]+"), SlopeGradient = 0, Aspect = 0, SI50 = 0) # add an id column for later use
+### this is from the grid of points to be predicted to fill SIBEC model
+# keep a single example of each BGC, rSMR, SNR combination
+# synth.dat <- synth.dat %>%
+#   select(-id, -Latitude) %>%
+#   distinct(BGC, rSMR, SNR, .keep_all = TRUE)
+# for rSMR = 0 in synth.dat create a table with a record for each species in spp.list with a SI50 = 0 including all the other columns
+
+SNR = c("A", "B", "C", "D", "E")
+rSMR = c(0, 8)
+new_records <- expand.grid(
+  NutrientRegime = SNR,
+  MoistureRegime = rSMR,
+  TreeSpp = unlist(spp.list, use.names = FALSE),
+  BGC = bgc.list
+)
+#synth.rsmr07 <- synth.dat %>% filter(rSMR %in% c(0, 8))
+synth.rsmr08 <- left_join(synth.dat, new_records,  by = c("BGC")) %>% mutate(SS_NoSpace = paste0(BGC, "/", MoistureRegime, NutrientRegime), PlotNumber = as.character(PlotNumber), MoistureRegime = as.character(MoistureRegime))
+fwrite(synth.rsmr08, "./data/synthetic_data_2025.csv")
+synth.rsmr08 <- synth.rsmr08 %>%
+  select(all_of(names(sibec.anal)))
+
+sibec.anal <- bind_rows(sibec.anal, synth.rsmr08) %>% mutate(purpose = "model") 
+# add in a tree record for each rSMR = 0 
+## read in suitability table and add SI50=0 across all edaphic positions when a species is out of range
+```
+
+Build a grid of edatopic positions for prediction of SIBEC values
+```{r}
+spp.list = unique(sibec.anal$TreeSpp)
+bgc.list = unique(sibec.anal$BGC)
+#synth.dat <- fread("./data/Edaphic_sites_data_2025.csv")
+climate.points <- fread("D:/OneDrive - Government of BC/CommonTables/BGCv13_3_2km_gridpts.csv") %>% slice_sample(n = 10, by="BGC") %>% select(PlotNumber = id, BGC, Latitude = ycoord, Longitude = xcoord, Elevation = elev) %>% mutate(Zone = str_extract(BGC, "[A-Z]+"), SlopeGradient = 0, Aspect = 0, SI50 = 0)
+SNR = c("A", "B", "C", "D", "E")
+rSMR = c(0,1, 2, 3, 4, 5, 6, 7, 8)
+
+edatopic.grid  <- expand.grid(
+  NutrientRegime = SNR,
+  MoistureRegime = rSMR,
+  TreeSpp = unlist(spp.list, use.names = FALSE),
+  BGC = bgc.list
+)
+
+edatopic.grid <- left_join(climate.points, edatopic.grid,  by = c("BGC")) %>% mutate(SS_NoSpace = paste0(BGC, "/", MoistureRegime, NutrientRegime), PlotNumber = as.character(PlotNumber), MoistureRegime = as.character(MoistureRegime), NutrientRegime = as.character(NutrientRegime)) %>% mutate(purpose = "edatopic")
+sibec.anal <- bind_rows(sibec.anal, edatopic.grid)
+#fwrite(synth.rsmr08, "./data/synthetic_data_2025.csv")
+
+```
+Add attributes to the SIBEC data
+```{r SIBEC data import}
+sibec.anal <- sibec.anal %>% 
+  mutate(rSNR = gsub("[+-]", "", NutrientRegime))
+sibec.anal <- sibec.anal %>% mutate(rSNRg = ifelse(NutrientRegime %in% c("A", "B"), "P",
+                                            ifelse(NutrientRegime %in% c("D", "E"), "R",
+                                                 ifelse (NutrientRegime %in% c("C"), "PM", "other"))))
+sibec.anal <- sibec.anal %>% mutate(eda1 = paste0(MoistureRegime, rSNR))
+sibec.anal <- sibec.anal  %>%  mutate(rSMR = as.numeric(gsub("[+-]", "", MoistureRegime))) %>% mutate(rSMR_label = paste0("rSMR", MoistureRegime), Aspect = as.numeric(Aspect))
+
+#fwrite(sibec.anal, "./data/SIBEC_Analysis_data_2025.csv")
+```
+
+
+```{r McCune and Keon heat load}
+
+# Load required package
+# library(spatialEco)
+# hli.pt(theta=180, alpha=30, latitude=40)
+# Multiple input, returns results from
+# McCune, B., and D. Keon (2002)
+# Raw -0.2551 -0.6280 0.0538 -0.6760 -1.1401 -0.2215
+# arithmetic scale 0.7748 0.5337 1.0553 0.5086 0.3198 0.8013
+slope_degrees <- atan(sibec.anal$SlopeGradient/100) * 180 / pi
+Aspect = c(0, 45, 90, 135, 180, 225, 270, 315)
+Latitude = c(55, 55, 55, 55, 55, 55, 55, 55)
+
+sibec.anal$heat <- hli.pt(theta = slope_degrees, alpha = sibec.anal$Aspect, latitude = sibec.anal$Latitude, 
+               direct = TRUE, scaled = TRUE, force.hemisphere = "north")
+sibec.anal$light <- hli.pt(theta = slope_degrees, alpha = sibec.anal$Aspect, latitude = sibec.anal$Latitude, 
+                direct = FALSE, scaled = TRUE, force.hemisphere = "north")
+#sibec.anal <- cbind(sibec.anal, heat, light)
+
+```
+## Add climr data to training data points
+
+```{r add climate and aSMR import}
+## add in climate data and calculate aSMR
+sibec.climate <- sibec.anal %>% as_tibble() %>% arrange(PlotNumber) %>% dplyr::mutate(id = row_number())
+my_points <- sibec.climate %>% select(lat = Latitude, lon=Longitude, elev = Elevation, id) %>% na.omit %>% as.data.table
+
+tic()
+clim_dat <- downscale(
+  xyz = my_points, 
+  return_refperiod = TRUE,
+  #which_refmap = "auto", 
+ vars=list_vars())
+toc()
+sibec.anal2 <- clim_dat %>% left_join(sibec.climate)
+sPPTtemp <- sibec.anal2 %>% select("id", "PPT_05","PPT_06","PPT_07","PPT_08","PPT_09" )
+sibec.anal2$Moist <- rowSums(sPPTtemp[,2:6] >90)
+sibec.anal2 <- sibec.anal2 %>% mutate(CMD = ifelse(Moist >4, CMD * 0.75, CMD))
+
+#temp2 <- temp2[temp2$Moist != "",] # only those points calculated to be moist
+#####################################
+#sibec.anal2 <- sibec.anal2[,c("id","PPT_at","PPT_wt","PAS", "CMD", "DD5")]
+#allDat2 <- cbind(wPPTtemp,CMDtemp)
+#allDat <- cbind(wPPTtemp,sPPTtemp[c("Moist")])
+#allDat <- cbind(allDat,temp,temp2) ### use this one if Moist indicator is completed above
+sibec.anal2$PPT.dorm <- sibec.anal2$PPT_at + sibec.anal2$PPT_wt
+sibec.anal2$Def <- 350 - sibec.anal2$PPT.dorm 
+sibec.anal2$Def[sibec.anal2$Def < 0] <- 0 #negative values set to zero = no deficit
+sibec.anal2$CMD <- sibec.anal2$CMD + sibec.anal2$Def
+sibec.anal3 <- sibec.anal2 %>% select(id, CMD, DD5, PAS, DD18, CMI, bFFP, Eref)
+sibec.anal3 <- left_join(sibec.anal3, sibec.climate, by = "id")
+# convert CMD to aSMR
+sibec.anal3 <- sibec.anal3 %>% mutate(CMD.adj = ifelse(rSMR == 3, CMD + 125, 
+                                                  ifelse(rSMR == 2, CMD + 250,
+                                                         ifelse(rSMR == 1, CMD + 375,
+                                                                ifelse(rSMR == 0, CMD + 500,
+                                                                       ifelse(rSMR == 5, CMD/2,
+                                                                              ifelse(rSMR == 6, CMD/4,
+                                                                                     ifelse(rSMR == 7, CMD/8,
+                                                                                            ifelse(rSMR== 8, CMD/32,
+                                                                                                   ifelse(rSMR == 4, CMD, NA)))))))))) %>% 
+  mutate(CMD.adj = ifelse(CMD.adj < 0, 0, CMD.adj))
+
+# Read the rules table
+rules_table <- fread("../aSMR_X_rSMR/inputs/aSMR_Rules_HalfStep_v13_7May2025.csv")
+labels <- fread("../aSMR_X_rSMR/inputs/aSMR_labels.csv")
+
+# Ensure column names are consistent
+colnames(rules_table) <- c("SMRLevel", "CMD.range", "aSMR")
+#sibec.anal.test <- sibec.anal2 %>% filter(PlotNumber == "0002801") %>% filter(TreeSpp == "Ss")
+# Merge with sibec.anal based on the rSMR field
+sibec.anal4 <- sibec.anal3 %>%
+  left_join(rules_table, by = c("rSMR" = "SMRLevel")) %>%  filter(CMD.range <= CMD.adj) %>%  group_by(PlotNumber, rSMR) %>% slice_max(CMD.range) %>% ungroup() %>% 
+  select(-CMD, -CMD.range) %>% data.frame %>% left_join(labels, by = c("aSMR" = "aSMR")) 
+sibec.anal4 <- sibec.anal4 %>% mutate(eda2 = paste0(aSMR_label, '/', rSNRg))
+sibec.anal4$TreeSpp <- sibec.anal4$TreeSpp %>% recode(
+  "Sw" = "Sx", "Se" = "Sx")
+```
+
+rescale SNR
+```{r add climate and aSMR import}
+sibec.anal5 <- sibec.anal4   %>%
+  mutate(SNR = as.numeric(factor(rSNR, levels = c("A", "B", "C", "D", "E"), ordered = TRUE)))
+sibec.anal <- sibec.anal5 %>% filter(purpose == "model") %>% select(-purpose)
+edatopic.grid <- sibec.anal5 %>% filter(purpose == 'edatopic') %>% select(-purpose)
+#sibec.anal5 <- sibec.anal5 %>% mutate(SNR = ifelse(SNR == 1, -40, ifelse(SNR == 2, -15, ifelse(SNR == 3, 0, ifelse(SNR == 4, 20, ifelse(SNR == 5, 30, NA))))))
+fwrite(sibec.anal, "./data/SIBEC_Analysis_data_2025.csv")
+fwrite(edatopic.grid, "./data/SIBEC_Edatopic_data_2025.csv")
+#xx <- sibec.anal4 %>% group_by(TreeSpp) %>%  summarize(n=n()) # check the number of records for each rSMR)
+```
+Other potential predictors
+Slope/aspect adjusted variables (DD5, CMD)
+Potential solar radiation
+
+```{r potenial solar radiation}
+
+```
+

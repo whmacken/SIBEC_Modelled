@@ -1,0 +1,233 @@
+---
+title: "Prep nonSIBEC data and calculate SI50 from SiteTools"
+author: "William H MacKenzie"
+date: "29/11/2019"
+output:
+  pdf_document: default
+  html_document: default
+---
+# Inclusion of additional SI data
+Especially the need for samples from geographic/climatic and edatopic extremes of species range.
+AMAT trial data
+Northern Off-site data
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+options(tinytex.verbose = TRUE)
+require(tidyverse)
+require (ggplot2)
+require(data.table)
+require(DBI)
+library(purrr)
+require(SIndexR)
+require(readxl)
+```
+
+## Read in data from a .csv table or xlsx
+AMAT
+EP976
+Hardy Offsite
+USA?
+
+```{r AMAT data import}
+amat.SL <- readxl::read_xlsx("./data/AMAT_ver17.xlsx", sheet = "seedlots") %>% mutate(TreeSpp = Sp) %>% select(SLnum, SLtype) 
+amat.sites <-  readxl::read_xlsx("./data/AMAT_ver17.xlsx", sheet = "sites") %>% select(Site, SiteName, BECvar, LAT_S, LONG_S, ELEV_S)
+
+amat.15 <- readxl::read_xlsx("./data/AMAT_ver17_cleaned.xlsx", sheet = "growth")  %>% rename(TreeSpp = Sp) %>%
+  filter(Year <= 2010) %>% 
+  mutate(TotalAge = 15 + 1) %>% mutate(HT15 = ifelse(HT15 %in% ".", 0.01, HT15)) %>% 
+    filter(!is.na(HT15) & HT15 != 9999) %>% 
+  mutate(HT15 = as.numeric(HT15)/100)
+#%>% filter(FORM15 %in% c("4", "5"), VIGOUR15 %in% c("4", "5")) %>% 
+treespp <- amat.15 %>% select(TreeSpp) %>% distinct()
+amat.BGC <-  readxl::read_xlsx("./data/AMAT_BEC.xlsx", sheet = "data") 
+amat.BGC2 <- amat.BGC %>% filter(is.na(ignore))
+amat.15 <- left_join(amat.15, amat.BGC)
+amat.15 <- amat.15 %>% mutate(TreeSpp = ifelse(Zone == "ESSF" & TreeSpp == "Sx", "Se", 
+                     ifelse(!Zone %in% c("ESSF") & TreeSpp == "Sx", "Sw", TreeSpp)))
+treespp <- amat.15 %>% select(TreeSpp) %>% distinct()
+
+  #amat.15$TreeSpp <- amat.15$TreeSpp %>% recode(
+#  "Sw" = "Sx", "sw" = "Sx", "Se" = "Sx", "SX" = "Sx", "HW" = "Hw",
+ # "EP"= "Ep", "Fdi" = "Fd", "Fdc " = "Fd", "PL" = "Pl")
+SI_clean <-  amat.15 %>% select(Site, Row, Col, Rep, SLnum, TreeSpp, TotalAge, HT15, Zone, BGCv13)
+SI_clean <- merge(SI_clean, amat.SL, by = c("SLnum") )
+SI_clean <- merge(SI_clean, amat.sites, by = "Site") 
+write.csv(SI_clean, "./for_sitetools/AMAT15yr_2024.csv", row.names = FALSE)
+```
+update site BGC
+```{r}
+# plot_locations <- amat.sites %>% rename(Longitude = LONG_S, Latitude = LAT_S) %>%
+#   dplyr::select(Site, Longitude, Latitude)
+# 
+# bgcs <- st_read("D:/OneDrive - Government of BC/CommonTables/BGC_maps/BGCv13_2_clipped_dissolved.gpkg", crs = 3005)
+# st_crs(bgcs) <- 3005
+# plot_coords <- st_as_sf(plot_locations, coords = c("Longitude", "Latitude"), crs = 4269)
+# plot_coords <- st_transform(plot_coords, 3005) 
+# st_crs(plot_coords) <- 3005
+# tic()
+# plot_coords <- st_join(plot_coords, bgcs)# %>% filter(is.na(BGC))
+# toc()
+# plot_coords_missed <- plot_coords %>% filter(is.na(BGC))
+# plot_coords <- plot_coords %>% filter(!is.na(BGC))
+```
+select site trees for each replication at each site for review
+```{r}
+sibec <- fread("./sitetools_calculated/AMAT_15yr_SI50.csv") %>% rename(TreeSpp = Species, SI50 = `Site Index m`) %>% mutate(TreeSpp = recode(TreeSpp,"Fdi" = "Fd", "Fdc" = "Fd", "Sw" = "Sx", "Se" = "Sx")) %>% select(Site, Rep, Row, Col, TreeSpp, SI50, SLnum)
+amat.15.sitetrees <- readxl::read_xlsx("./data/AMAT_ver17_cleaned.xlsx", sheet = "growth") %>%
+  #filter(FORM15 %in% c("4", "5")) %>% #, VIGOUR15 == "5") %>%
+  rename(TreeSpp = Sp) %>%
+  mutate(TotalAge = 15 + 1) %>%
+  mutate(HT15 = as.numeric(HT15)/100) %>% 
+  mutate(TreeSpp = recode(TreeSpp,"Fdi" = "Fd", "Fdc" = "Fd")) %>% 
+  #group_by(Site, TreeSpp, Rep) %>%  slice_max(DBH15) %>% ungroup %>%
+  group_by(Site, TreeSpp, Rep) %>% slice_max(HT15) %>% ungroup
+#select only records in amat.15.sitetrees from sibec
+amat.reps <- readxl::read_xlsx("./data/AMAT_ver17_cleaned.xlsx", sheet = "growth") %>%
+  mutate(TreeSpp = Sp) %>% mutate(TreeSpp = recode(TreeSpp,"Fdi" = "Fd", "Fdc" = "Fd", "Sw" = "Sx", "Se" = "Sx"))%>%
+  select(Site, TreeSpp, SLnum, Rep) %>% distinct %>% count(Site, TreeSpp, SLnum)
+amat.sibec <- left_join(amat.15.sitetrees, sibec, by = c("Site", "TreeSpp", "Rep", "SLnum", "Row", "Col")) %>%
+  distinct(Site, TreeSpp, Rep, SI50, .keep_all = TRUE) %>%
+  #group_by(Site, TreeSpp, Rep) %>%
+  #mutate(survive.n = n(SI50 > 0)) %>% ungroup() %>% # count only where SI50 > 0
+    select(Site, TreeSpp, Rep, SI50, SLnum) %>% #, survive.n
+  left_join(amat.reps, by = c("Site", "TreeSpp", "SLnum")) %>%
+  #mutate(success_perc = survive.n/n) %>% 
+  mutate(SI50 = ifelse(is.na(SI50), 0, SI50))
+
+ggplot(amat.sibec, aes(x = Site, y = SI50)) + # fill = success_category
+  geom_boxplot(outlier.size = 1, lwd = 0.1) +  # Thin box outlines
+  geom_jitter(width = 0.2, size = 0.1, alpha = 0.7, show.legend = FALSE) +  # Jittered points
+  labs(title = "Mean SI50 by Tree Species Rep",
+       x = "Tree Species",
+       y = "SI50")+#,
+       #fill = "Success Category") +
+  theme(axis.text.x = element_text(angle = 70, hjust = 1, size = 5)) +
+  facet_wrap(~TreeSpp, ncol = 3) #+
+  #scale_fill_manual(values = c("25%" = "red", "50%" = "orange", "75%" = "yellow", "100%" = "green")) +
+  #scale_color_manual(values = c("25%" = "red", "50%" = "orange", "75%" = "yellow", "100%" = "green"))
+
+mkrf <- amat.sibec %>% filter(Site == "MKRF") %>% 
+  group_by(Rep, TreeSpp) %>%
+  summarize(
+    maxSI = max(SI50, na.rm = TRUE),
+    minSI = min(SI50, na.rm = TRUE),
+    medianSI = median(SI50, na.rm = TRUE),
+    si_range = maxSI - minSI,
+    .groups = "drop"
+  ) %>%
+  filter(maxSI > 0) %>%
+  arrange(TreeSpp, Rep)
+library(gt)
+
+si_range_table <- amat.sibec %>%
+  group_by(Site, TreeSpp) %>%
+  summarize(
+    maxSI = max(SI50, na.rm = TRUE),
+    minSI = min(SI50, na.rm = TRUE),
+    medianSI = median(SI50, na.rm = TRUE),
+    si_range = maxSI - minSI,
+    .groups = "drop"
+  ) %>%
+  filter(maxSI > 0) %>%
+  arrange(Site, TreeSpp)
+
+# Create a nice gt table grouped by Site
+si_range_table %>%
+  gt::gt(groupname_col = "Site") %>%
+  gt::tab_header(
+    title = "Tree Species with SI50 Range between Reps"
+  )
+library(writexl)
+
+write_xlsx(si_range_table, "SI50_range_by_site.xlsx")
+
+##Return data for SIBEC model
+site.tree <- amat.sibec %>%
+  group_by(Site, TreeSpp) %>%
+  summarize(
+    #maxSI = max(SI50, na.rm = TRUE),
+    #minSI = min(SI50, na.rm = TRUE),
+    #medianSI = median(SI50, na.rm = TRUE),
+    SI50 = quantile(SI50, 0.9, na.rm = TRUE) 
+    #si_range = maxSI - minSI,
+    #.groups = "drop"
+  ) %>% ungroup %>% 
+  arrange(Site, TreeSpp) %>% left_join(amat.sites, by = "Site") %>% left_join(amat.BGC2, by = "Site") %>% data.frame
+
+site.tree2 <- site.tree %>%
+  mutate(SS_NoSpace = paste0(BGCv13, "/", SS)) %>%
+  select(PlotNumber = Site, TreeSpp, Zone, BGC = BGCv13, SS_NoSpace, SI50,Latitude = LAT_S, Longitude = LONG_S, Elevation = ELEV_S, MoistureRegime = rSMR, NutrientRegime =  SNR) %>% mutate(SlopeGradient = 0, Aspect = 0)
+fwrite(site.tree2, "./data/AMAT_SI50_for_SIBEC.csv")
+```
+
+
+Compare Seedlot
+```{r}
+# Read in the dataset
+dataset <- fread("./sitetools_calculated/AMAT_15yr_SI50.csv") %>% rename(TreeSpp = Species, SI50 = `Site Index m`) %>% mutate(TreeSpp = recode(TreeSpp,"Fd" = "Fdi", "Fd" = "Fdi"))
+dataset <- dataset %>% group_by(Site, TreeSpp, SLtype) %>% mutate(SI50_mean = mean(SI50))
+best.SL <- dataset %>%
+  group_by(Site, TreeSpp) %>%
+  summarize(
+    Best_SL = SLnum[which.max(SI50_mean)]
+  ) %>%
+  ungroup()
+# chose best.SL from dataset
+dataset <- dataset %>%
+  left_join(best.SL, by = c("Site", "TreeSpp")) %>%
+  mutate(Best_SL = ifelse(SLnum == Best_SL, "Best", "Other")) %>%
+  mutate(SLtype = factor(SLtype, levels = c("A", "B", "LC"))) # Ensure SLtype is a factor with specific levels
+dataset2 = dataset %>% filter(Best_SL == "Best")
+## ggplot mean SI50 by TreeSpp across sites
+ggplot(dataset2, aes(x = Site, y = SI50)) +
+  geom_boxplot() +
+  labs(title = "Mean SI50 by Tree Species", x = "Tree Species", y = "SI50") +
+  #rotate x-axis labels for better readability
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 5)) +
+  #theme_minimal()+
+  facet_wrap(~TreeSpp) # to see the differences by seedlot type
+SI.trees.mean <- dataset %>% group_by(Site, TreeSpp, SLtype) %>% summarize(SI50_mean = mean(SI50))
+# Reshape the data to compare SLtypes within each Site and TreeSpp
+SI.trees.comparison <- dataset %>%
+  group_by(Site, TreeSpp, SLtype) %>%
+  summarize(
+    #SIndexR_coastmean = mean(SIndexR_coast, na.rm = TRUE),
+    SI50_mean = mean(SI50, na.rm = TRUE)
+  ) %>%
+  pivot_wider(names_from = SLtype, values_from = c(SI50_mean)) %>% select(Site, TreeSpp, A, B, LC) %>%
+  mutate(AvsLC = (A-LC)/LC, AvsB= (A-B)/B , BvsLC = (B-LC)/LC, AvsB_all = (A - pmax(B, LC, na.rm = TRUE)) / pmax(B, LC, na.rm = TRUE))  %>%
+  rowwise() %>%
+  mutate(Highest_Value_Column = c("A", "LC", "B")[which.max(c(A, LC, B))]) %>%
+  ungroup()%>%
+  filter(!if_all(c(AvsLC, AvsB, BvsLC), is.na))
+# Create a boxplot of AvsLC by TreeSpp
+ggplot(SI.trees.comparison, aes(x = TreeSpp, y = AvsLC)) +
+  geom_boxplot() +
+  labs(title = "Percent difference of mean SI of Type A vs Local B Seedlots by TreeSpp", x = "Tree Species", y = "AvsLC") +
+  theme_minimal()
+ggplot(SI.trees.comparison, aes(x = TreeSpp, y = BvsLC)) +
+  geom_boxplot() +
+  labs(title = "Percent difference of mean SI of Best B vs Local B Seedlots by TreeSpp", x = "Tree Species", y = "AvsLC") +
+  theme_minimal()
+ggplot(SI.trees.comparison, aes(x = TreeSpp, y = AvsB)) +
+  geom_boxplot() +
+  labs(title = "Percent difference of mean SI of A vs Best B Seedlots by TreeSpp", x = "Tree Species", y = "AvsLC") +
+  theme_minimal()
+ggplot(SI.trees.comparison, aes(x = TreeSpp, y = AvsB_all)) +
+  geom_boxplot() +
+  labs(title = "Percent difference of mean SI of A vs Best B orLC Seedlots by TreeSpp", x = "Tree Species", y = "AvsLC") +
+  geom_hline(yintercept = 0.2, color = "red", linetype = "dashed") +  # Corrected from abline()
+  theme_minimal()
+
+  theme_minimal()
+
+# summary by tree species by comparison
+# SLtype.comparison <- SI.trees.comparison %>%
+#   group_by(TreeSpp) %>%
+#   summarize(
+#     LCvsA_mean = mean(LCvsA, na.rm = TRUE),
+#     LCvsB_mean = mean(LCvsB, na.rm = TRUE),
+#     AvsB_mean = mean(AvsB, na.rm = TRUE))
+```
+

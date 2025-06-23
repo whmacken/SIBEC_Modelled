@@ -1,0 +1,139 @@
+---
+title: "Build new SIBEC tables for 2024 data"
+author: "William H MacKenzie"
+date: "21/05/2025"
+format:
+  typst:
+    toc: false
+    toc-depth: 1
+    toc-title: Contents
+    section-numbering: 1.1.1
+    columns: 1
+editor: source
+execute:
+  echo: false
+  error: false
+  warning: false
+  message: false
+  fig.width: 6
+  fig.height: 4
+  fig.align: 'center'
+  fig.cap: true
+  fig.pos: H
+  out.width: '100%'
+  dev: pdf
+  fig.ext: pdf
+  cache: false
+  fig.retina: 2
+  dpi: 600
+  fig.asp: 1.5
+  fig.path: "./figures/"
+---
+
+# Evaluation of SIBEC values
+This script was built to look at the range of site index by site series or other site factors for the SIBEC dataset compiled by Atticus from the original data sets.
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+#options(tinytex.verbose = TRUE)
+require(tidyverse)
+#require (ggplot2)
+require (assertr)
+require(data.table)
+require(DBI)
+library(purrr)
+require(tictoc)
+require(tidymodels)
+require(vip)
+require(randomForest)
+library(knitr)
+library(stringr)
+require(readxl)
+```
+
+##Import SIBEC data
+
+compare the sitebec summaries from 2013 and 2024 to see if there are any differences in the data. This will help to understand how the data has changed over time and if there are any trends that can be identified.
+
+```{r SIBEC and BECdb data import}
+require(DBI) #loads odbc as well
+ becdb <- dbConnect(odbc::odbc(), .connection_string = "Driver={Microsoft Access Driver (*.mdb, *.accdb)}; DBQ=D:/OneDrive - Government of BC/BECdb_Working/BECdb_ver13_2024.accdb;")
+BGC_all <- dbReadTable(becdb, "tblBGC_UnitsWorkingandArchive") %>% 
+  filter(is.na(VersionRetired)) %>% select(FSRegion,BGC_Label, BGC_NoSpace, BGC_Zone, Corr1BGC_1) %>% 
+  mutate(BGC_Label = trimws(BGC_Label))
+SS_all <- dbReadTable(becdb, "tblBEC_SiteSeriesWorkingandArchive") %>% 
+  filter(Status == "Current", Forest_NonForest %in% c("Forest", "Treed")) %>%
+  select(BGC_NoSpace, SS_NoSpace, SS_Label, SiteSeriesLongName)
+SS_new <- dbReadTable(becdb, "tblBEC_SiteSeries_v13_compiled") %>%
+  filter(Forest_NonForest %in% c("Forest", "Treed")) %>%
+  select(BGC_NoSpace, SS_NoSpace, SS_Label,SiteSeriesLongName)
+SS_all <- bind_rows(SS_all, SS_new) %>% distinct() 
+dbDisconnect(becdb)
+BGCs_noSS <- anti_join(BGC_all , SS_all)
+
+sibec_master <- dbConnect(odbc::odbc(), .connection_string = "Driver={Microsoft Access Driver (*.mdb, *.accdb)}; DBQ=D:/OneDrive - Government of BC/SIBEC_files/SIBEC_2025_VPRO_cleaned.accdb;")
+sibec  <- dbReadTable(sibec_master, "SIBEC_All_2025_ENV")
+sibec.tree  <- dbReadTable(sibec_master, "SIBEC_All_2025_Trees")
+sibec.info  <- dbReadTable(sibec_master, "newSS_from_edatopic")
+dbDisconnect(sibec_master)
+sibec.info <- sibec.info %>% select(PlotNumber, BGC_spatial, NewSS)
+sibec.tree <- sibec.tree %>% select(PlotNumber, TreeSpp, SI50)
+
+sibec25 <- left_join(sibec.tree, sibec.info)
+BGC.update <- BGC_all %>% select(BGC_NoSpace, Corr1BGC_1) %>%
+  filter(!is.na(Corr1BGC_1)) 
+sibec13 <- readxl::read_xlsx("./inputs/sibec2013approx_final.xlsx") %>%
+  mutate(BECSiteUnit = paste0(BGCUnit, "/", SiteSeries)) %>%
+  select(-Region) %>% distinct %>%
+  rename(SiteSeriesLongName = SiteAssociation) %>%
+  left_join(BGC.update, by = c("BGCUnit" = "Corr1BGC_1")) %>% 
+  mutate(BGC_NoSpace = ifelse(is.na(BGC_NoSpace), BGCUnit, BGC_NoSpace)) %>% 
+  select(BGC_NoSpace, BECSiteUnit, SiteSeriesLongName, TreeSpp, MeanPlotSiteIndex, PlotCountSpp)
+
+
+sibec13$TreeSpp <- sibec13$TreeSpp %>% recode(
+  "Sw" = "Sx", "Se" = "Sx", "Acb" = "Ac", "Act" = "Ac") 
+
+```
+Summarize SI by site series
+```{r}
+sibec25.2 <- sibec25 #%>%
+  #mutate(BECSiteUnit = str_remove(BECSiteUnit, "[a-z]+$"))%>% #Removes phase designation
+  #mutate(BECSiteUnit = str_remove(NewSS, "\\$.*")) %>% #removes seral designation
+  #mutate(BGC_NoSpace = str_extract(BECSiteUnit, "^[^/]+")) #extracts BGC from BECSiteUnit
+sibec25.sum <- sibec25.2 %>% group_by(NewSS, TreeSpp) %>%
+  mutate(meanSI_2025 = mean(SI50, na.rm = TRUE), n_2025 = n(), SE_2025 = sd(SI50, na.rm = TRUE) / sqrt(n_2025)) %>%
+  ungroup() %>%
+  mutate(NewSS = as.factor(NewSS), TreeSpp = as.factor(TreeSpp)) %>%
+  select(-PlotNumber, -SI50) %>% select(BGC_spatial, NewSS, everything()) %>% 
+  distinct %>% arrange(NewSS, TreeSpp) %>% filter(n_2025 >= 7)
+sibec25.bgc <- sibec25.2 %>% group_by(BGC_spatial, TreeSpp) %>%
+  summarise(n_2025 = n()) %>%
+  ungroup()
+
+```
+Updated SIBEC summary
+```{r}
+sibec25.ss <- full_join(sibec25.sum, sibec13, by = c("BGC_NoSpace", "TreeSpp")) %>% 
+  mutate(across(c(n_2025, PlotCountSpp), ~replace_na(.x, 0))) %>% 
+  mutate(SI_diff = meanSI_2025 - MeanPlotSiteIndex, nplots_diff = n_2025 - PlotCountSpp) %>% 
+  mutate(PlotCountSpp = as.integer(PlotCountSpp), nplots_diff = as.integer(nplots_diff)) %>% 
+ mutate(across(where(is.numeric), round, 2))
+ library(openxlsx)
+write.xlsx(sibec25.ss, "./outputs/SIBEC_2025_2013_Summary.xlsx", overwrite = TRUE)
+## number of samples per BGC to check numbers
+## probably need to align old to new BGCs
+sibec13.bgc <- sibec13 %>% group_by(BGC_NoSpace, TreeSpp) %>%
+  summarise(n_2013 = sum(PlotCountSpp, na.rm = TRUE)) %>%
+  ungroup() 
+sibec25.bgc <- full_join(sibec25.bgc, sibec13.bgc, by = c("BGC_NoSpace"= "BGC_NoSpace", "TreeSpp")) %>% mutate(across(where(is.numeric), ~replace_na(.x, 0))) %>% mutate(nplot_diff = n_2025-n_2013)
+```
+## Merge with modelled SIBEC values
+```{r}
+# pred_SI_SS <- fread("./data/predicted_SI_by_SS.csv")
+# sibec25.ss.2 <- left_join(sibec25.ss, pred_SI_SS, by = c("BECSiteUnit" = "SS_NoSpace", "TreeSpp")) %>%
+#   mutate(SI25_pred_diff = meanSI_2025 - pred_mean_SI50, SI13_pred_diff = MeanPlotSiteIndex - pred_mean_SI50) %>%
+#   mutate(across(where(is.numeric), round, 2))
+# fwrite(sibec25.ss.2, "./outputs/SIBEC_2025_2013_Summary_with_predicted.csv", row.names = FALSE)
+```
+

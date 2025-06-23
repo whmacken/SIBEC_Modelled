@@ -1,0 +1,391 @@
+---
+title: "Predict SIBEC"
+author: "William H MacKenzie"
+date: "21/05/2025"
+format:
+  typst:
+    toc: false
+    toc-depth: 1
+    toc-title: Contents
+    section-numbering: 1.1.1
+    columns: 1
+editor: source
+execute:
+  echo: false
+  error: false
+  warning: false
+  message: false
+  fig.width: 6
+  fig.height: 4
+  fig.align: 'center'
+  fig.cap: true
+  fig.pos: H
+  out.width: '100%'
+  dev: pdf
+  fig.ext: pdf
+  cache: false
+  fig.retina: 2
+  dpi: 600
+  fig.asp: 1.5
+  fig.path: "./figures/"
+---
+
+# Predicted SI by edatopic position and site series
+This script uses the SIBEC machine-learned models to predict site index by edatopic position for each BGC and tree species. Predictions are made on a synthetic data set representing all edatopic conditions for each BGC. 100 climate points per BGC are selected randomly from a 2km grid of the WNA_BGC. At each of these climate points, 40 edatopic sites (A-E SNR by 0-7 rSMR) are created with site adjusted climate and site level attributes.  A tree species specific site index by edatopic grid is then generated for review and model improvement.
+A table of predicted site index for site series is then summarized from edatopic SI50 of all edatopic positions for each site series. 
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+#options(tinytex.verbose = TRUE)
+require(tidyverse)
+#require (ggplot2)
+require (assertr)
+require(data.table)
+require(DBI)
+library(purrr)
+require(tictoc)
+require(tidymodels)
+require(vip)
+#require(randomForest)
+library(knitr)
+require(tictoc)
+require(stacks)
+```
+
+##Import SIBEC data
+
+Read in SIBEC data from a .csv table export of a _Trees table from the VTrees database
+
+```{r SIBEC data import}
+sibec.anal <- fread("./data/SIBEC_Analysis_data_2025.csv")## cleaned and attributed SIBEC data
+edatopic.sites <- fread( "./data/SIBEC_Edatopic_data_2025.csv") %>% mutate(SNR = as.numeric(SNR)) ## this is set of datapoints for each edatopic position in each BGC for prediction
+fwrite(edatopic.sites, "./data/Edaphic_sites_test.csv")
+predictors <- c("DD5", "rSMR", "aSMR", "SNR", "CMD.adj", "PAS", "CMI", "bFFP", "DD18", "Eref")
+sibec13 <- readxl::read_xlsx("./inputs/sibec2013approx_final.xlsx") %>% mutate(BECSiteUnit = paste0(BGCUnit, "/", SiteSeries))# %>%
+```
+
+##Predict edaphic positions with ensemble model and synthetic data
+This script can be run a single time for any version of the models and then commented out to save time when generating the tables and figures.
+
+```{r predict example edatopic data}
+tic()
+coast.bgc = c("CWH")#, "MH", "CDF")
+edatopic.sites2 <- edatopic.sites#  %>% filter(Zone %in% coast.bgc)
+
+#List all saved ensemble models
+model_files <- list.files(path = "./models/", pattern = "ensemble_model_.*\\.rds$", full.names = TRUE)
+
+# Load models and store them in a named list
+ensemble_models <- lapply(model_files, function(file) {
+  species <- sub("./models/ensemble_model_(.*)\\.rds", "\\1", file)  # Extract species name
+  model <- readRDS(file)
+  list(species = species, model = model)
+})
+
+# Convert list to a named structure for easy lookup
+names(ensemble_models) <- sapply(ensemble_models, `[[`, "species")
+spp.list <- ensemble_models %>% map_chr("species")
+
+site_data_prepped <- recipe(reformulate(predictors), data = edatopic.sites2) %>%
+  update_role(aSMR, rSMR, new_role = "id variable") %>%
+#+ Latitude
+      # step_normalize(all_numeric_predictors()) %>%
+      # step_dummy(all_nominal_predictors()) %>%
+      # step_nzv(all_predictors())%>%
+  prep() %>%
+  bake(new_data = edatopic.sites2)
+#species = "Pl"
+ensemble_predictions_df <- bind_rows(map(spp.list, function(species) {
+  model <- ensemble_models[[species]]$model
+
+  if (nrow(site_data_prepped) > 0) {
+    preds <- predict(model, new_data = site_data_prepped) %>% ## need to specify which package::predict to run
+    as.data.frame() %>%
+    dplyr::rename(pred_si50 = 1) %>%
+    bind_cols(edatopic.sites2) %>%
+    mutate(TreeSpp = species)  # Assign species name dynamically
+
+    return(preds)
+  } else {
+    return(NULL)  # Skip species with no test data
+  }
+}))
+
+fwrite(ensemble_predictions_df, "./outputs/ensemble_predictions_df.csv")
+toc()
+xx <- edatopic.sites %>% filter(BGC == "CWHdm3", TreeSpp == "Pl")#, rSMR == 0, SNR == 1)
+```
+
+## Summarize SI50 by Edatopic position
+```{r}
+fread("./outputs/ensemble_predictions_df.csv") -> ensemble_predictions_df
+summary_ensemble_results <- ensemble_predictions_df %>%
+     group_by(BGC, TreeSpp, rSMR, SNR) %>%
+  mutate(
+    #mean_SI50 = mean(pred_si50, na.rm = TRUE),
+    sd_SI50 = sd(pred_si50, na.rm = TRUE),
+    mean_SI50 = quantile(pred_si50, 0.90, na.rm = TRUE),
+    .groups = "drop"  # Prevents grouped output warnings
+  ) %>% select(BGC, TreeSpp, rSMR, SNR, mean_SI50, sd_SI50) %>% ungroup %>% mutate(mean_SI50 = round(mean_SI50, 2), sd_SI50 = round(sd_SI50, 2)) %>% distinct
+# explore SI by edatopic position for a specific BGC and TreeSpp
+test <- summary_ensemble_results %>% filter(BGC == "IDFdk3", TreeSpp == "Fd") %>%  mutate(SNR = recode(SNR, `1` = "A", `2` = "B", `3` = "C", `4` = "D", `5` = "E") ) %>% 
+  pivot_wider(id_cols = c(rSMR), names_from = SNR, values_from = c(mean_SI50)) %>% mutate(rSMR = as.character(rSMR)) %>% ungroup
+  gt::gt(test)
+
+
+## compare species at a particular edatopic position
+#bgc_name = "SBSmc2"
+# Function to create and save plot & table for each BGC
+SI_by_edatope <- function(bgc_name) {
+  # Filter data for the current BGC
+  data_subset <- summary_ensemble_results %>%
+    #filter(BGC == bgc_name) %>%
+    mutate(SNR = recode(SNR, `1` = "A", `2` = "B", `3` = "C", `4` = "D", `5` = "E")) %>%
+    select(-sd_SI50) %>%
+    pivot_wider(id_cols = c(BGC, rSMR, SNR), names_from = TreeSpp, values_from = c(mean_SI50)) %>%
+    mutate(rSMR = as.character(rSMR)) %>%
+    ungroup() %>% data.frame
+
+  # Generate the gt table
+  gt_table <- data_subset %>%
+    gt::gt() %>%
+    gt::opt_table_font(size = gt::px(12))
+
+  data_subset %>%
+    gt::gt()%>%
+    gt::opt_table_font(size = gt::px(12))
+
+# Define the folder path within the project directory
+output_dir <- file.path( "./edatope_SI")  # Adjust if needed
+
+# Ensure the directory exists
+if (!dir.exists(output_dir)) {
+  dir.create(output_dir, recursive = TRUE)
+}
+
+# Save the table as a PDF inside the specified folder
+#gt::gtsave(gt_table, filename = file.path(output_dir, paste0("edatope_SI_table_", bgc_name, ".pdf")))
+
+}
+# Apply function to each unique BGC value
+unique_BGC <- unique(summary_ensemble_results$BGC)
+walk(unique_BGC, SI_by_edatope)
+
+#xx <- preds %>% filter(BGC == "SBSmc2", TreeSpp == "Pl")#, rSMR == 0, SNR == 1) 
+```
+SIBEC summaries
+group into Site Series
+```{r sibec estimates}
+ss.eda <- fread("./inputs/edatopic_fixed.csv") %>%   mutate(rSNR = substr(Edatopic, 1, 1), rSMR = substr(Edatopic, 2, 2))# # Keeps any values that don't match
+
+SS_summary <- ensemble_predictions_df  %>% 
+  mutate(Edatopic = paste0(rSNR, rSMR)) %>%
+select(BGC, Edatopic, TreeSpp, pred_si50) %>% 
+  #mutate(rSMR = as.character(rSMR), SNR = as.character(SNR)) %>% mutate(rSNR = case_when(
+           # SNR == "1" ~ "A",
+           # SNR == "2" ~ "B",
+           # SNR == "3" ~ "C",
+           # SNR == "4" ~ "D",
+           # SNR == "5" ~ "E",
+           # TRUE ~ SNR)) %>% 
+  left_join(ss.eda, by = c("BGC", "Edatopic")) %>% select(BGC, SS_NoSpace, TreeSpp, pred_si50) %>% 
+     group_by(SS_NoSpace, TreeSpp) %>%
+  mutate(
+    #pred_mean_SI50 = mean(pred_si50, na.rm = TRUE),
+        pred_mean_SI50 = quantile(pred_si50, 0.90, na.rm = TRUE),
+    pred_sd_SI50 = sd(pred_si50, na.rm = TRUE),
+    pred_n = n(),
+    pred_SE = sd(pred_si50, na.rm = TRUE) / sqrt(pred_n),
+    .groups = "drop"  # Prevents grouped output warnings
+  ) %>% select(BGC, SS_NoSpace, TreeSpp, pred_mean_SI50, pred_sd_SI50, pred_SE) %>% ungroup %>% distinct
+#fwrite(SS_summary, "./data/predicted_SI_by_SS.csv", row.names = FALSE)
+bgc.choose = "SBSmc2"; tree.spp.choose = "Pl"
+SS_summary %>% filter(BGC %in% bgc.choose, TreeSpp %in% tree.spp.choose) %>% arrange(SS_NoSpace) %>%
+  gt::gt() %>%
+  gt::opt_table_font(size = gt::px(12)) %>%
+  gt::tab_header(title = paste0("Predicted Site Index by Site Series for ", tree.spp.choose, " in ", bgc.choose)) %>%
+  gt::fmt_number(columns = c(pred_mean_SI50, pred_sd_SI50, pred_SE), decimals = 2) %>%
+  gt::cols_label(pred_mean_SI50 = "Mean SI50", pred_sd_SI50 = "SD of SI50", pred_SE = "Standard Error of SI50") %>%
+  gt::tab_spanner(label = "Site Series Summary", columns = c(pred_mean_SI50, pred_sd_SI50, pred_SE)) %>%
+  gt::tab_spanner(label = "Tree Species", columns = TreeSpp) %>%
+  gt::cols_align(align = "center", columns = everything()) %>%
+  gt::cols_width(TreeSpp ~ px(100), SS_NoSpace ~ px(150))
+#%>% mutate(mean_SI50 = round(mean_SI50, 2), sd_SI50 = round(sd_SI50, 2)) 
+```
+
+
+## Predict edaphic positions with random forest model for all species
+this clearly does not extrapolate well in edaphic space
+Would need to add in other real or synthetic data to get a better model
+```{r}
+# List all saved rf models
+
+# model_files <- list.files(path = "./models/", pattern = "^rf_model_.*\\.rds$", full.names = TRUE)
+# rf_models <- lapply(model_files, function(file) {
+#   species <- sub("./models/rf_model_(.*)\\.rds", "\\1", file)  # Extract species name
+#   model <- readRDS(file)
+#   list(species = species, model = model)
+# })
+# # Convert list to a named structure for easy lookup
+# names(rf_models) <- sapply(rf_models, `[[`, "species")
+# 
+# site_data_prepped <- recipe(reformulate(predictors), data = site_data) %>% #+ Latitude
+#       # step_normalize(all_numeric_predictors()) %>%
+#       # step_dummy(all_nominal_predictors()) %>%
+#       # step_nzv(all_predictors())%>%
+#   prep() %>%
+#   bake(new_data = site_data)
+# spp.list <- rf_models %>% map_chr("species") # Extract species names
+# ##species = "Sx"
+# # preds <- predict(rf_models[[species]]$model, newdata = site_data_prepped) %>% as.data.frame %>% rename(pred_si50 = 1) %>% bind_cols(site_data) %>%
+# #   mutate(TreeSpp = species)  # Assign species name
+# # # Predict SI50 using each species model across all sites
+# # predicted_results <- bind_rows(map(names(rf_models), function(species) {
+# #   model <- rf_models[[species]]$model
+# #   preds <- predict(rf_models[[species]]$model, newdata = site_data_prepped) %>% as.data.frame %>% rename(pred_si50 = 1) %>% bind_cols(site_data) %>%
+# #   mutate(TreeSpp = species) # Assign species name
+# # Loop through each species in spp.list and apply predictions
+# predicted_results <- bind_rows(map(spp.list, function(species) {
+#   model <- rf_models[[species]]$model
+#   
+#   preds <- predict(model, newdata = site_data_prepped) %>%
+#     as.data.frame() %>%
+#     dplyr::rename(pred_si50 = 1) %>%
+#     bind_cols(site_data) %>%
+#     mutate(TreeSpp = species)  # Assign species name dynamically
+# 
+#   return(preds)
+# }))
+# 
+# summary_rf_results <- predicted_results %>%
+#   dplyr::group_by(BGC, TreeSpp, rSMR, SNR) %>%
+#   mutate(
+#     mean_SI50 = mean(pred_si50, na.rm = TRUE),
+#     sd_SI50 = sd(pred_si50, na.rm = TRUE),
+#     .groups = "drop"  # Prevents grouped output warnings
+#   ) %>% select(BGC, TreeSpp, rSMR, SNR, mean_SI50, sd_SI50) %>% distinct
+# 
+# summary_rf_results %>% filter(BGC == "SBSmc2", TreeSpp == "Sx") %>%  mutate(SNR = recode(SNR, `1` = "A", `2` = "B", `3` = "C", `4` = "D", `5` = "E")) %>% 
+#   pivot_wider(id_cols = c(rSMR), names_from = SNR, values_from = c(mean_SI50)) %>% mutate(rSMR = as.character(rSMR)) %>% ungroup %>%  gt::gt()
+
+```
+
+
+##Predict edaphic positions with ensemble model for all species
+better extrapolation but not great. 
+```{r}
+# List all saved ensemble models
+# model_files <- list.files(path = "./models/", pattern = "^ensemble_model_.*\\.rds$", full.names = TRUE)
+# 
+# # Load models and store them in a named list
+# ensemble_models <- lapply(model_files, function(file) {
+#   species <- sub("./models/ensemble_model_(.*)\\.rds", "\\1", file)  # Extract species name
+#   model <- readRDS(file)
+#   list(species = species, model = model)
+# })
+# 
+# # Convert list to a named structure for easy lookup
+# names(ensemble_models) <- sapply(ensemble_models, `[[`, "species")
+# spp.list <- ensemble_models %>% map_chr("species")
+# 
+# site_data_prepped <- recipe(reformulate(predictors), data = site_data) %>% #+ Latitude
+#       # step_normalize(all_numeric_predictors()) %>%
+#       # step_dummy(all_nominal_predictors()) %>%
+#       # step_nzv(all_predictors())%>%
+#   prep() %>%
+#   bake(new_data = site_data)
+# #species = "Pl"
+# ensemble_predictions_df <- bind_rows(map(spp.list, function(species) {
+#   model <- ensemble_models[[species]]$model
+#  
+#   if (nrow(site_data_prepped) > 0) {
+#     preds <- predict(model, new_data = site_data_prepped) %>%
+#     as.data.frame() %>%
+#     dplyr::rename(pred_si50 = 1) %>%
+#     bind_cols(site_data) %>%
+#     mutate(TreeSpp = species)  # Assign species name dynamically
+# 
+#     return(preds)
+#   } else {
+#     return(NULL)  # Skip species with no test data
+#   }
+# }))
+# 
+# 
+# summary_ensemble_results <- ensemble_predictions_df %>%
+#      group_by(BGC, TreeSpp, rSMR, SNR) %>%
+#   mutate(
+#     mean_SI50 = mean(pred_si50, na.rm = TRUE),
+#     sd_SI50 = sd(pred_si50, na.rm = TRUE),
+#     .groups = "drop"  # Prevents grouped output warnings
+#   ) %>% select(BGC, TreeSpp, rSMR, SNR, mean_SI50, sd_SI50) %>% distinct
+# 
+# summary_ensemble_results %>% filter(BGC == "SBSmc2", TreeSpp == "Pl") %>%  mutate(SNR = recode(SNR, `1` = "A", `2` = "B", `3` = "C", `4` = "D", `5` = "E")) %>% 
+#   pivot_wider(id_cols = c(rSMR), names_from = SNR, values_from = c(mean_SI50)) %>% mutate(rSMR = as.character(rSMR)) %>% ungroup %>%  gt::gt()
+
+#xx <- preds %>% filter(BGC == "SBSmc2", TreeSpp == "Pl")#, rSMR == 0, SNR == 1) 
+```
+
+
+
+
+maximum SI50 for each species for climate potential
+```{r}
+# Calculate the maximum SI50 for each species
+max_si50_by_species <- ensemble_predictions_df %>%
+  group_by(BGC, TreeSpp) %>%
+  filter(pred_si50 == max(pred_si50, na.rm = TRUE))
+
+max_si50_by_species2 <- max_si50_by_species %>%
+  filter(TreeSpp == "Py" & !str_detect(BGC, "^CWH|^MH|^CDF")) %>% ungroup
+
+library(ggplot2)
+
+ggplot(max_si50_by_species2, aes(x = DD5, y = pred_si50)) +
+  geom_col(fill = "steelblue", color = "black") +  # Use geom_col for categorical x-axis
+  labs(title = "Histogram of Predicted SI50 by DD5",
+       x = "DD5",
+       y = "Predicted SI50") +
+  theme_minimal() +
+  facet_wrap(~TreeSpp, scales = "free_y", ncol = 4) +
+  scale_x_continuous(limits = c(0, max(max_si50_by_species2$DD5, na.rm = TRUE))) +  # Set DD5 scale
+  scale_y_continuous(limits = c(0, max(max_si50_by_species2$pred_si50, na.rm = TRUE)))  # Set SI50 scale
+
+ggplot(max_si50_by_species2, aes(x = DD5, fill = TreeSpp)) +  # Only x aesthetic
+  geom_density(alpha = 0.5) +  # Correct density plot
+  labs(title = "Density Plot of Predicted SI50 by DD5",
+       x = "DD5",
+       y = "Density") +  # Density represents probability distribution
+  theme_minimal() +
+  scale_x_continuous(limits = c(0, max(max_si50_by_species2$DD5, na.rm = TRUE))) +
+  facet_wrap(~TreeSpp, scales = "free_y", ncol = 4)
+```
+
+
+```{r boxplot species by rSMRxSNR}
+SI_spp <- sibec.anal %>% arrange(BGC)#%>% filter(grepl("^SBSmc2", BECSiteUnit))
+SI_spp <- drop_na (SI_spp)
+# Create separate plots for each BGC
+unique_bgcs <- sort(unique(SI_spp$BGC))
+unique_bgcs = "CWHvm1"
+for (bgc in unique_bgcs) {
+  # Filter data for the current BGC
+  SI_spp_subset <- SI_spp %>% filter(BGC == bgc)
+  
+  # Create the plot
+SI_plot <- ggplot(SI_spp_subset, aes(x=eda1, y=SI50, fill=rSNRg)) +
+  geom_boxplot() +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(size = 8,angle = 90, hjust = 1, vjust = 0.5),
+    panel.grid.major.x = element_blank(),
+    panel.grid.major.y = element_line(color = "gray80")
+  ) +
+  ggtitle(paste0("Site Index by edaphic position ", bgc)) +
+  facet_wrap(~TreeSpp)
+  plot(SI_plot)
+  # Save the plot
+  #ggsave(filename = paste0("./outputs/SiteIndex_", bgc, "_rSMR.png"), plot = SI_plot, width = 8, height = 6)
+}
+
+```
