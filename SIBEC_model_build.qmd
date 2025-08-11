@@ -372,6 +372,8 @@ sibec.lm <- sibec.lm %>% filter(TreeSpp %in% n_training$TreeSpp[n_training$count
 ```
 
 ##Build ensemble Model by TreeSpp with extra data and custom meta learner
+
+Need to add in GAM model
 ```{r}
 
 options(warn = -1)
