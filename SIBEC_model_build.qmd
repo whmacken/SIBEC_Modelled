@@ -508,10 +508,23 @@ all_predictions <- bind_rows(species_predictions)
 # Save predictions to Excel
 write.xlsx(all_predictions, "Measured_vs_Predicted_SI50.xlsx")
 
+# Function to calculate R²
+calculate_r2 <- function(observed, predicted) {
+  cor(observed, predicted)^2
+}
+
+# Calculate R² for each species
+r2_by_species <- all_predictions %>%
+  group_by(TreeSpp) %>%
+  summarise(R2 = calculate_r2(.pred, SI50))
+
+# View results
+print(r2_by_species)
+
 # Optional: Plot measured vs predicted
 ggplot(all_predictions, aes(x = SI50, y = .pred)) +
   geom_point(alpha = 0.4, size = 1) +
-  geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "darkblue") +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "red") +
   facet_wrap(~TreeSpp, scales = "free") +
   labs(title = "Measured vs Predicted SI50 by Tree Species",
        x = "Measured SI50",
@@ -594,6 +607,7 @@ for (species in names(species_list)) {
 
 # Save the entire model list as one object
 saveRDS(model_list, file = "models/all_species_ensemble_models.rds")
+model_list <- readRDS("models/all_species_ensemble_models.rds")
 # Combine metrics and predictions
 
 final_metrics <- bind_rows(species_results)
