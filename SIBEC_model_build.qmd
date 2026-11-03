@@ -43,7 +43,7 @@ require(tidyverse)
 #require (ggplot2)
 require (assertr)
 require(data.table)
-require(climr)
+#require(climr)
 require(DBI)
 library(purrr)
 require(tictoc)
@@ -65,24 +65,27 @@ require(mgcv)  # Generalized additive models)
 
 ##Import SIBEC data
 
-Read in SIBEC data from a .csv table export of a _Trees table from the VTrees database
+Read in SIBEC data saved from SIBEC_data_prep.Rmd scripts
 
 ```{r SIBEC data import}
-sibec.anal <- fread("./data/SIBEC_Analysis_data_2025.csv") %>% 
+sibec.anal <- readRDS("./data/SIBEC_Analysis_data_2026.rds") %>% 
  # mutate(SNR = as.numeric(factor(rSNR, levels = c("A", "B", "C", "D", "E"), ordered = TRUE))) %>% 
-  mutate(SNR = as.numeric(SNR))%>% 
-  mutate(rSMR = as.numeric(rSMR))%>%
+  mutate(SNR = as.integer(
+      factor(SNR, levels = c("A", "B", "C", "D", "E", "F")))) %>% 
+  #mutate(rSMR = as.integer(
+   #   factor(rSMR, levels = c("0", "1", "2", "3", "4", "5","6","7","8")))) %>%
   mutate(
-    DD5 = as.numeric(DD5),
+    DD5 = as.numeric(DD5_an),
     CMD.adj = as.numeric(CMD.adj))
-predictors <- c("DD5","aSMR", "SNR", "CMD.adj", "PAS", "CMI", "bFFP", "DD18", "Eref","rSMR")#,
+
+predictors <- c("DD5_an", "SNR", "CMD.adj", "PAS_an", "CMI_an", "bFFP", "DD18_an", "Eref_an","rSMR", "VPD_sm")#,"aSMR",
 ###For random forests probably need some bounding data otherwise no extrapolation into sites outside the training data
 ###Ensemble models may be better for extrapolation but challenges in getting to prediction 
 
 sibec.coast <- sibec.anal %>% filter(Zone %in% c("CWH", "MH", "CDF"))
 sibec.interior <- sibec.anal %>% filter(!Zone %in% c("CWH", "MH", "CDF")) 
 ## select set for running models
-sibec.tst = sibec.anal
+sibec.tst = sibec.coast
 # Step 1: Calculate non-zero SI50 count per TreeSpp
 valid_species <- sibec.tst %>%
   filter(SI50 > 0) %>%
@@ -91,7 +94,7 @@ valid_species <- sibec.tst %>%
   pull(TreeSpp)
 
 # Step 2: Filter main dataset to retain only those species
-sibec.tst <- sibec.anal %>%
+sibec.tst <- sibec.tst %>%
   filter(TreeSpp %in% valid_species)
 
 xx <- sibec.tst %>% filter(BGC == "ESSFmcw")
@@ -135,7 +138,7 @@ SI_plot <- ggplot(SI_spp_subset, aes(x=eda1, y=SI50, fill=rSNRg)) +
 ```{r flag and remove outliers}
 sibec.lm <- sibec.tst 
 #aspect.class = as.factor(aspect.class))
-sibec.lm <- sibec.lm %>% select(PlotNumber, TreeSpp, SI50, predictors) #SI50, DD5, rSMR, aSMR, SNR, CMD.adj, PAS, CMI, bFFP, DD18,  Eref)#Latitude,
+sibec.lm <- sibec.lm %>% select(PlotNumber, BGC, TreeSpp, purpose, SI50, predictors) #SI50, DD5, rSMR, aSMR, SNR, CMD.adj, PAS, CMI, bFFP, DD18,  Eref)#Latitude,
 
 # sibec.outliers <- sibec.lm %>%
 #   group_by(TreeSpp) %>%
@@ -164,142 +167,409 @@ sibec.lm <- sibec.lm %>% select(PlotNumber, TreeSpp, SI50, predictors) #SI50, DD
 #   theme_minimal()
 # sibec.lm <- sibec.lm %>% filter(!PlotNumber %in% outliers$PlotNumber) #%>% select(-PlotNumber)
 # count the number of rows per tree species
-n_training <- sibec.lm %>% filter(SI50>0) %>%  group_by(TreeSpp) %>% summarise(count = n()) %>% arrange(desc(count))
+
 #filter species with less than 50 observations
-sibec.lm <- sibec.lm %>% filter(TreeSpp %in% n_training$TreeSpp[n_training$count > 50])
+sibec.anal2 <- sibec.lm %>%
+  mutate(
+    purpose = recode(
+      purpose,
+      sibec = "data",
+      amat = "data",
+      edaphic_boundary = "boundary"
+    )
+  ) 
+n_training <- sibec.anal2 %>% filter(SI50>=0) %>%  group_by(TreeSpp, purpose) %>% summarise(count = n()) %>% arrange(desc(count))
+n_data <- n_training |> filter(purpose == "data")
+
+sibec.anal2 <- sibec.anal2 |>  filter(
+  complete.cases(
+    CMD.adj, DD5_an, CMI_an, DD18_an,
+    Eref_an, PAS_an, bFFP, rSMR, SNR, SI50
+  )) |> 
+   filter(TreeSpp %in% n_data$TreeSpp[n_data$count > 50]) |> 
+  filter(TreeSpp != "Sx")
+     
+# |> rename(species = TreeSpp)
  ##reduce sibec.lm to remove outliers
 
-```
-## Build Random Forest models and review variable importance and partial dependence plots
-```{r build randomforests models}
-# library(tidymodels)
-# library(tidyverse)
-# library(tibble)
-# library(dplyr)
-# library(vip)
-# library(ggplot2)
-# 
-# df <- sibec.lm #%>% filter(TreeSpp == "Fd")
-# # Group the dataset and create models
-# species_split <- split(df, df$TreeSpp) 
-# # Base recipe setup for reuse
-# 
-# # Initialize storage lists
-# results_list <- list()
-# summary_list <- list()
-# predictions_list <- list()
-# 
-# # Iterate through species
-# for (species_name in names(species_split)) {
-#   df <- species_split[[species_name]]
-# 
-#   if (nrow(df) < 500) next
-# 
-#   # Create folds
-#   set.seed(123)
-#   cv_folds <- vfold_cv(df, v = 5)
-# 
-#   # Recipe
-#   rec <- recipe(SI50 ~ ., data = df %>% select(all_of(c("SI50", predictors)))) %>%
-#       update_role(rSMR, new_role = "id variable")
-#   # Random forest spec
-#   rf_spec <- rand_forest(trees = 500) %>% #mtry = tune(), min_n = tune()
-#     set_engine("ranger", importance = "impurity") %>%
-#     set_mode("regression")
-# 
-#   # Workflow
-#   wf <- workflow() %>%
-#     add_model(rf_spec) %>%
-#     add_recipe(rec)
-# 
-#   # Tune the model
-#   rf_tune <- tune_grid(
-#     wf,
-#     resamples = cv_folds,
-#     grid = 5,
-#     metrics = metric_set(rmse, rsq)
-#   )
-# 
-#   # Select best and finalize
-#   best_params <- tune::select_best(rf_tune)
-#   final_wf <- finalize_workflow(wf, best_params)
-# 
-#   # Fit final model
-#   final_fit <- fit(final_wf, data = df)
-# # Save each model to disk by species name
-# # model_path <- file.path("models", paste0("rf_model_", species_name, ".rds"))
-# # write_rds(final_fit, model_path)
-# 
-#   # Save results
-#   results_list[[species_name]] <- final_fit
-# 
-#   # Metrics summary
-#   rsq_val <- collect_metrics(rf_tune) %>%
-#     filter(.metric == "rsq") %>%
-#     summarise(Variance_Explained = 100 * mean(mean)) %>%
-#     pull(Variance_Explained)
-# 
-#   summary_list[[species_name]] <- data.frame(
-#     TreeSpp = species_name,
-#     Variance_Explained = rsq_val
-#   )
-# 
-#   # Predictions
-#   preds <- predict(final_fit, df) %>%
-#     bind_cols(df %>% select(PlotNumber, TreeSpp, SI50)) %>%
-#     rename(Predicted_SI50 = .pred)
-# 
-#   predictions_list[[species_name]] <- preds
-# }
-# 
-# # Save the entire model list as one object
-# saveRDS(results_list, file = "models/species_rf_models.rds")
-# 
-# # Combine results
-# rf_summary <- do.call(rbind, summary_list)
-# rf_predictions_df <- do.call(rbind, predictions_list)
-# 
-# 
-# # Load the full model list
-# all_models <- readRDS("models/species_rf_models.rds")
-# 
-# # Loop and plot VIPs
-# for (species_name in names(all_models)) {
-#   model <- all_models[[species_name]]
-# 
-#   # Extract the fitted ranger model from the workflow
-#   rf_fit <- model$fit$fit  # model is a workflow
-#   
-#   # Plot VIP
-#   vip_plot <- vip(rf_fit, num_features = 10, geom = "col", aesthetics = list(fill = "steelblue")) +
-#     ggtitle(paste("VIP for", species_name)) +
-#     theme_minimal()
-# 
-#   print(vip_plot)  # Display in RStudio or output device
-# 
-#   # Optionally save to file
-#   #ggsave(filename = paste0("vip_plots/vip_", species_name, ".png"), plot = vip_plot, width = 8, height = 5)
-# }
-# 
-# # Generate ggplot with corrected species assignments
-# gt::gt(rf_summary)
-# ggplot(rf_predictions_df, aes(x = SI50, y = Predicted_SI50, color = TreeSpp)) +
-#   geom_point(alpha = 0.6) +
-#   geom_smooth(method = "lm", se = FALSE, color = "blue") +
-#   geom_abline(slope = 1, intercept = 0, linetype = "dashed") +
-#   labs(title = "Predicted vs Observed SI50 from RandomForests",
-#        x = "Observed SI50",
-#        y = "Predicted SI50",
-#        color = "Tree Species") +
-#   theme_minimal() +
-#   facet_wrap(~TreeSpp)
 
 ```
 
 ```{r}
-#Explore plots where >3m difference between predicted and observed
-#outlier.preds <- rf_predictions_df %>% filter(abs(SI50 - Predicted_SI50) > 3)
+species_metrics <- list()
+species_predictions <- list()
+final_models <- list(
+  rf = list(),
+  gam = list(),
+  stack = list()
+)
+model_list <- list(
+  rf = list(),
+  gam = list(),
+  stack = list()
+)
+species_list <- unique(sibec.anal2$TreeSpp)
+#species_list = "Fd"
+for(species in species_list){
+
+  cat(species, "\n")
+
+  spp_data <- sibec.anal2 %>%
+    filter(TreeSpp == species)
+
+  if(nrow(spp_data) < 50) next
+
+  #-----------------------------
+  # Train / Assessment split
+  #-----------------------------
+
+  # split_obj <- initial_split(
+  #   spp_data,
+  #   prop = 0.8,
+  #   strata = purpose
+  # )
+  # 
+  split_obj <-group_initial_split(
+  spp_data,
+  group = BGC,
+  prop = 0.8
+)
+
+  train_tbl <- training(split_obj)
+  assess_tbl <- testing(split_obj)
+
+  cv_folds <- vfold_cv(
+    train_tbl,
+    v = 5,
+    strata = purpose
+  )
+    
+  model_recipe <- recipe(
+    reformulate(predictors, response = "SI50"),
+    data = train_tbl
+  ) %>%
+    step_interact(~ rSMR:SNR)
+  
+    
+  rf_wf <- workflow() %>%
+    add_recipe(model_recipe) %>%
+    add_model(
+      rand_forest(
+        trees = 500
+      ) %>%
+        set_engine(
+          "ranger",
+          importance = "permutation"
+        ) %>%
+        set_mode("regression")
+    )
+      
+    xgb_wf <- workflow() %>%
+    add_recipe(model_recipe) %>%
+    add_model(
+      boost_tree(
+        trees = 200
+      ) %>%
+        set_engine("xgboost") %>%
+        set_mode("regression")
+    )
+        
+      svm_wf <- workflow() %>%
+    add_recipe(model_recipe) %>%
+    add_model(
+      svm_rbf() %>%
+        set_engine("kernlab") %>%
+        set_mode("regression")
+    )
+      
+        ctrl <- control_resamples(
+    save_pred = TRUE,
+    save_workflow = TRUE
+  )
+
+  rf_res <- fit_resamples(
+    rf_wf,
+    cv_folds,
+    metrics = metric_set(rmse, mae, rsq),
+    control = ctrl
+  )
+
+  xgb_res <- fit_resamples(
+    xgb_wf,
+    cv_folds,
+    metrics = metric_set(rmse, mae, rsq),
+    control = ctrl
+  )
+
+  svm_res <- fit_resamples(
+    svm_wf,
+    cv_folds,
+    metrics = metric_set(rmse, mae, rsq),
+    control = ctrl
+  )
+  
+    stack_fit <- stacks() %>%
+    add_candidates(xgb_res) %>%
+    add_candidates(rf_res) %>%
+    add_candidates(svm_res) %>%
+    blend_predictions() %>%
+    fit_members()
+    
+      rf_fit <- fit(
+    rf_wf,
+    train_tbl
+  )
+      
+        gam_fit <- mgcv::gam(
+    SI50 ~
+      s(CMD.adj, k = 10) +
+      s(DD5_an, k = 10) +
+      s(CMI_an, k = 10) +
+      s(DD18_an, k = 10) +
+      s(Eref_an, k = 10) +
+      s(PAS_an, k = 10) +
+      s(bFFP, k = 10) +
+      s(VPD_sm, k=10)+
+      s(rSMR, bs = "cr", k = 5) +
+    s(SNR, bs = "cr", k = 5)+
+    ti(rSMR, SNR, k = c(5,5)),
+    data = train_tbl,
+    method = "REML",
+    select = TRUE
+  )
+
+  rf_pred <- predict(
+    rf_fit,
+    assess_tbl
+  )$.pred
+
+  gam_pred <- predict(
+    gam_fit,
+    newdata = assess_tbl
+  )
+    
+  stack_pred <- predict(
+    stack_fit,
+    new_data = assess_tbl
+  )$.pred
+  
+    metric_df <- tibble(
+    TreeSpp = species,
+    Model = c(
+      "RF",
+      "GAM",
+      "STACK"
+    ),
+    R2 = c(
+      cor(assess_tbl$SI50, rf_pred)^2,
+      cor(assess_tbl$SI50, gam_pred)^2,
+      cor(assess_tbl$SI50, stack_pred)^2
+    ),
+    RMSE = c(
+      rmse_vec(assess_tbl$SI50, rf_pred),
+      rmse_vec(assess_tbl$SI50, gam_pred),
+      rmse_vec(assess_tbl$SI50, stack_pred)
+    ),
+    MAE = c(
+      mae_vec(assess_tbl$SI50, rf_pred),
+      mae_vec(assess_tbl$SI50, gam_pred),
+      mae_vec(assess_tbl$SI50, stack_pred)
+    ),
+    n = nrow(assess_tbl)
+  )
+
+  species_metrics[[species]] <- metric_df
+  print(metric_df)
+  cat(
+  species,
+  "RF =", round(metric_df$R2[metric_df$Model=="RF"],3),
+  "GAM =", round(metric_df$R2[metric_df$Model=="GAM"],3),
+  "STACK =", round(metric_df$R2[metric_df$Model=="STACK"],3),
+  "\n"
+)
+  
+    species_predictions[[species]] <- bind_rows(
+
+    tibble(
+      TreeSpp = species,
+      Model = "RF",
+      SI50 = assess_tbl$SI50,
+      Pred = rf_pred
+    ),
+
+    tibble(
+      TreeSpp = species,
+      Model = "GAM",
+      SI50 = assess_tbl$SI50,
+      Pred = gam_pred
+    ),
+
+    tibble(
+      TreeSpp = species,
+      Model = "STACK",
+      SI50 = assess_tbl$SI50,
+      Pred = stack_pred
+    )
+
+  )
+  model_list$rf[[species]] <- rf_fit
+  model_list$gam[[species]] <- gam_fit
+  model_list$stack[[species]] <- stack_fit
+  
+  full_recipe <- recipe(
+  reformulate(predictors, response = "SI50"),
+  data = spp_data
+) %>%
+  step_interact(~ rSMR:SNR)
+  
+  rf_final <- workflow() %>%
+  add_recipe(full_recipe) %>%
+  add_model(
+    rand_forest(
+      trees = 500
+    ) %>%
+      set_engine(
+        "ranger",
+        importance = "permutation"
+      ) %>%
+      set_mode("regression")
+  ) %>%
+  fit(spp_data)
+  
+  gam_final <- mgcv::gam(
+  SI50 ~
+    s(CMD.adj, k = 10) +
+    s(DD5_an, k = 10) +
+    s(CMI_an, k = 10) +
+    s(DD18_an, k = 10) +
+    s(Eref_an, k = 10) +
+    s(PAS_an, k = 10) +
+    s(bFFP, k = 10) +
+    s(VPD_sm, k = 10) +
+      s(rSMR, bs = "cr", k = 5) +
+    s(SNR, bs = "cr", k = 5),
+  data = spp_data,
+  method = "REML",
+  select = TRUE
+)
+
+  full_folds <- vfold_cv(
+  spp_data,
+  v = 10,
+  strata = purpose
+)
+  rf_full_res <- fit_resamples(
+  rf_wf,
+  full_folds,
+  metrics = metric_set(rmse, mae),
+  control = ctrl
+)
+
+xgb_full_res <- fit_resamples(
+  xgb_wf,
+  full_folds,
+  metrics = metric_set(rmse, mae),
+  control = ctrl
+)
+
+svm_full_res <- fit_resamples(
+  svm_wf,
+  full_folds,
+  metrics = metric_set(rmse, mae),
+  control = ctrl
+)
+stack_final <- stacks() %>%
+  add_candidates(xgb_full_res) %>%
+  add_candidates(rf_full_res) %>%
+  add_candidates(svm_full_res) %>%
+  blend_predictions() %>%
+  fit_members()
+final_models$rf[[species]] <- rf_final
+final_models$gam[[species]] <- gam_final
+final_models$stack[[species]] <- stack_final
+}
+
+saveRDS(
+  final_models,
+  "./models/final_species_models.rds"
+)
+
+saveRDS(
+  stack_final,
+  paste0(
+    "./models/stack_final_",
+    species,
+    ".rds"
+  )
+)
 ```
+
+
+```{r}
+final_metrics <-
+  bind_rows(species_metrics)
+
+all_predictions <-
+  bind_rows(species_predictions)
+
+best_models <-
+  final_metrics %>%
+  group_by(TreeSpp) %>%
+  slice_max(
+    R2,
+    n = 1,
+    with_ties = FALSE
+  )
+gt::gt(best_models)
+
+final_metrics %>%
+  select(TreeSpp, Model, R2) %>%
+  tidyr::pivot_wider(
+    names_from = Model,
+    values_from = R2
+  )
+
+final_metrics %>%
+  group_by(Model) %>%
+  summarise(
+    Mean_R2 = mean(R2),
+    Mean_RMSE = mean(RMSE),
+    Mean_MAE = mean(MAE)
+  )
+
+ggplot(
+  final_metrics,
+  aes(
+    y = TreeSpp,
+    x = R2,
+    fill = Model
+  )
+) +
+  geom_col(
+    position = position_dodge()
+  ) +
+  theme_bw()
+
+ggplot(
+  final_metrics,
+  aes(
+    Model,
+    TreeSpp,
+    fill = R2
+  )
+) +
+  geom_tile() +
+  geom_text(
+    aes(label = round(R2, 2)),
+    color = "white"
+  ) +
+  scale_fill_viridis_c() +
+  theme_bw()
+```
+
+
+
+
 
 ```{r single partial dependence plots}
 # species = "Ba"
@@ -320,6 +590,7 @@ sibec.lm <- sibec.lm %>% filter(TreeSpp %in% n_training$TreeSpp[n_training$count
 #     print(pdp_plot)
 
 ```
+
 ```{r partial dependence plots}
 # library(pdp)
 # library(ggplot2)
@@ -370,336 +641,5 @@ sibec.lm <- sibec.lm %>% filter(TreeSpp %in% n_training$TreeSpp[n_training$count
 #   }
 # }
 ```
-
-##Build ensemble Model by TreeSpp with extra data and custom meta learner
-
-Need to add in GAM model
-```{r}
-
-options(warn = -1)
-set.seed(123)
-training_data <- sibec.lm #%>% filter(TreeSpp %in% c("Fd", "Pl"))
-# Split dataset by species
-species_list <- split(training_data, training_data$TreeSpp)
-species_results <- list()
-species_predictions <- list()
-model_list <- list()
-species = "Bl"
-for (species in names(species_list)) {
-  train_data <- species_list[[species]]
-  
-  if (nrow(train_data) > 50) {
-    cv_folds <- vfold_cv(train_data, v = 10)
-    
-    model_recipe <- recipe(reformulate(predictors, response = "SI50"), data = train_data) %>%
-      update_role(aSMR, rSMR, new_role = "id variable") %>% 
-      step_interact(terms = ~ aSMR:SNR)
-
-    #gam_spec <- gen_additive_mod() %>%   set_engine("mgcv") %>%  set_mode("regression")
-    
-   # gam_wf <- workflow() %>%  add_model(gam_spec) %>%
-  #add_formula(SI50 ~ s(aSMR, k = 9) + s(SNR, k = 5) + DD5 + CMD.adj + bFFP + CMI + DD18 + Eref + PAS +rSMR) 
-    
-    gamboost_wf <- workflow() %>%
-      add_model(boost_tree(trees = 101) %>% set_engine("xgboost") %>% set_mode("regression")) %>%
-      add_recipe(model_recipe)
-
-    
-    rf_wf <- workflow() %>%
-      add_model(rand_forest(trees = 500) %>% set_engine("ranger", importance = "permutation") %>% set_mode("regression")) %>%
-      add_recipe(model_recipe)
-    
-    svm_wf <- workflow() %>%
-      add_model(svm_rbf() %>% set_engine("kernlab") %>% set_mode("regression")) %>%
-      add_recipe(model_recipe)
-    
-    stack_control <- control_resamples(save_pred = TRUE, save_workflow = TRUE)
-    
-    gamboost_res <- fit_resamples(gamboost_wf, resamples = cv_folds, 
-                                  metrics = metric_set(mae, rmse, rsq), control = stack_control)
-    rf_res <- fit_resamples(rf_wf, resamples = cv_folds, 
-                            metrics = metric_set(mae, rmse, rsq), control = stack_control)
-    svm_res <- fit_resamples(svm_wf, resamples = cv_folds, 
-                             metrics = metric_set(mae, rmse, rsq), control = stack_control)
-    # gam_res <- fit_resamples(gam_wf,  resamples = cv_folds,  
-    #                          metrics = metric_set(mae, rmse, rsq),  control = stack_control)
-
-    
-    library(stacks)
-  ensemble_stack <- stacks() %>%
-  add_candidates(gamboost_res) %>%
-  add_candidates(rf_res) %>%
-  add_candidates(svm_res) %>%
-  blend_predictions() %>%
-  fit_members()
-
-  
-member_preds <- predict(ensemble_stack, new_data = train_data, members = TRUE)
-  
-meta_data <- bind_cols(member_preds, SI50 = train_data$SI50)
-
-library(tidymodels)
-
-# Meta-learner spec: Boosted tree
-boost_spec <- boost_tree(
-  trees = 1000,
-  tree_depth = 6,
-  learn_rate = 0.05
-) %>%
-  set_engine("xgboost") %>%
-  set_mode("regression")
-
-meta_wf <- workflow() %>%
-  add_model(boost_spec) %>%
-  add_formula(SI50 ~ .)
-
-meta_fit <- fit(meta_wf, data = meta_data)
-
-# Predict with the meta-learner
-# For new data:
-new_base_preds <- predict(ensemble_stack, new_data = train_data, members = TRUE)
-
-# Generate final predictions using the fitted meta-model
-final_predictions <- predict(meta_fit, new_data = new_base_preds)%>%
-      bind_cols(train_data %>% select(SI50)) %>%
-      mutate(TreeSpp = species)
-
-     # Save results
-  #model_list[[species]] <- ensemble_stack 
-    model_list[[species]] <- meta_fit
-    # Save the model
-    saveRDS(ensemble_stack, file = paste0("./models/metafit_ensemble_model_", species, ".rds"))
-    
-    # # Extract predictions on training data
-    # preds <- ensemble_stack %>%
-    #   predict(new_data = train_data) %>%
-    #   bind_cols(train_data %>% select(SI50)) %>%
-    #   mutate(TreeSpp = species)
-    
-    species_predictions[[species]] <- final_predictions
-    
-    # Collect performance metrics
-    metrics_df <- bind_rows(
-      gamboost = collect_metrics(gamboost_res),
-      rf = collect_metrics(rf_res),
-      svm = collect_metrics(svm_res),
-      .id = "Model"
-    ) %>% mutate(TreeSpp = species)
-    
-    species_results[[species]] <- metrics_df
-  }
-}
-
-# Save the entire model list as one object
-saveRDS(model_list, file = "models/all_species_metafit_ensemble_models.rds")
-# Combine metrics and predictions
-
-final_metrics <- bind_rows(species_results)
-variance_explained <- final_metrics %>% filter(.metric == "rsq") %>% 
-  # group_by(TreeSpp, Model) %>%
-  # summarise(Variance_Explained = mean(.metric)) %>%
-  # ungroup() %>%
-  mutate(Variance_Explained = round(mean * 100, 2)) %>% select(TreeSpp, Model, Variance_Explained)
-gt::gt(variance_explained)
-
-all_predictions <- bind_rows(species_predictions)
-
-
-# Save predictions to Excel
-write.xlsx(all_predictions, "Measured_vs_Predicted_SI50.xlsx")
-
-# Function to calculate R²
-calculate_r2 <- function(observed, predicted) {
-  cor(observed, predicted)^2
-}
-
-# Calculate R² for each species
-r2_by_species <- all_predictions %>%
-  group_by(TreeSpp) %>%
-  summarise(R2 = calculate_r2(.pred, SI50))
-
-# View results
-print(r2_by_species)
-
-# Optional: Plot measured vs predicted
-ggplot(all_predictions, aes(x = SI50, y = .pred)) +
-  geom_point(alpha = 0.4, size = 1) +
-  geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "red") +
-  facet_wrap(~TreeSpp, scales = "free") +
-  labs(title = "Measured vs Predicted SI50 by Tree Species",
-       x = "Measured SI50",
-       y = "Predicted SI50") +
-  theme_minimal()
-```
-
-
-##Build ensemble Model by TreeSpp with extra data
-```{r}
-
-options(warn = -1)
-set.seed(123)
-training_data <- sibec.lm #%>% filter(TreeSpp %in% c("Fd", "Pl"))
-# Split dataset by species
-species_list <- split(training_data, training_data$TreeSpp)
-species_results <- list()
-species_predictions <- list()
-model_list <- list()
-
-for (species in names(species_list)) {
-  train_data <- species_list[[species]]
-  
-  if (nrow(train_data) > 50) {
-    cv_folds <- vfold_cv(train_data, v = 10)
-    
-    model_recipe <- recipe(reformulate(predictors, response = "SI50"), data = train_data) %>%
-      update_role(aSMR, rSMR, new_role = "id variable") %>% 
-      step_interact(terms = ~ aSMR:SNR)
-
-    
-    gamboost_wf <- workflow() %>%
-      add_model(boost_tree(trees = 101) %>% set_engine("xgboost") %>% set_mode("regression")) %>%
-      add_recipe(model_recipe)
-    
-    rf_wf <- workflow() %>%
-      add_model(rand_forest(trees = 500) %>% set_engine("ranger", importance = "permutation") %>% set_mode("regression")) %>%
-      add_recipe(model_recipe)
-    
-    svm_wf <- workflow() %>%
-      add_model(svm_rbf() %>% set_engine("kernlab") %>% set_mode("regression")) %>%
-      add_recipe(model_recipe)
-    
-    stack_control <- control_resamples(save_pred = TRUE, save_workflow = TRUE)
-    
-    gamboost_res <- fit_resamples(gamboost_wf, resamples = cv_folds, metrics = metric_set(mae, rmse, rsq), control = stack_control)
-    rf_res <- fit_resamples(rf_wf, resamples = cv_folds, metrics = metric_set(mae, rmse, rsq), control = stack_control)
-    svm_res <- fit_resamples(svm_wf, resamples = cv_folds, metrics = metric_set(mae, rmse, rsq), control = stack_control)
-    
-    ensemble_stack <- stacks() %>%
-      add_candidates(gamboost_res) %>%
-      add_candidates(rf_res) %>%
-      add_candidates(svm_res) %>%
-      blend_predictions() %>%
-      fit_members()
-     # Save results
-  model_list[[species]] <- ensemble_stack 
-    # Save the model
-    saveRDS(ensemble_stack, file = paste0("./models/ensemble_model_", species, ".rds"))
-    
-    # Extract predictions on training data
-    preds <- ensemble_stack %>%
-      predict(new_data = train_data) %>%
-      bind_cols(train_data %>% select(SI50)) %>%
-      mutate(TreeSpp = species)
-    
-    species_predictions[[species]] <- preds
-    
-    # Collect performance metrics
-    metrics_df <- bind_rows(
-      gamboost = collect_metrics(gamboost_res),
-      rf = collect_metrics(rf_res),
-      svm = collect_metrics(svm_res),
-      .id = "Model"
-    ) %>% mutate(TreeSpp = species)
-    
-    species_results[[species]] <- metrics_df
-  }
-}
-
-# Save the entire model list as one object
-saveRDS(model_list, file = "models/all_species_ensemble_models.rds")
-model_list <- readRDS("models/all_species_ensemble_models.rds")
-# Combine metrics and predictions
-
-final_metrics <- bind_rows(species_results)
-variance_explained <- final_metrics %>% filter(.metric == "rsq") %>% 
-  # group_by(TreeSpp, Model) %>%
-  # summarise(Variance_Explained = mean(.metric)) %>%
-  # ungroup() %>%
-  mutate(Variance_Explained = round(mean * 100, 2)) %>% select(TreeSpp, Model, Variance_Explained)
-gt::gt(variance_explained)
-
-all_predictions <- bind_rows(species_predictions)
-
-
-# Save predictions to Excel
-write.xlsx(all_predictions, "Measured_vs_Predicted_SI50.xlsx")
-
-# Optional: Plot measured vs predicted
-ggplot(all_predictions, aes(x = SI50, y = .pred)) +
-  geom_point(alpha = 0.4, size = 1) +
-  geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "darkblue") +
-  facet_wrap(~TreeSpp, scales = "free") +
-  labs(title = "Measured vs Predicted SI50 by Tree Species",
-       x = "Measured SI50",
-       y = "Predicted SI50") +
-  theme_minimal()
-```
-##Theoretical relationship between climatic potential SI and DD5
-```{r}
-# library(sn)# Load skew-normal distribution functions
-# require(scales) 
-# library(VGAM)  # Load Gompertz functions
-# xi <- 0.25       # Median location
-# omega <- 0.45    # Standard deviation
-# alpha <- -5       # Positive skew (adjust as needed)
-# set.seed(123)  # Ensures reproducibility
-# # Generate skewed normal data
-# data <- rsn(1000, xi = xi, omega = omega, alpha = alpha)
-# data_rescaled <- rescale(data, to = c(0, 2000))
-# 
-# # Compute density manually
-# density_data <- density(data_rescaled)
-# density_data$y <- rescale(density_data$y, to = c(0, 80))  # Rescale to 0-30
-# 
-# df <- data.frame(DD5 = data_rescaled)
-# 
-# ggplot(df, aes(x = DD5)) +
-#   geom_histogram(aes(y = ..count..), bins = 50, fill = "steelblue", color = "black", alpha = 0.7) +
-#   geom_line(data = data.frame(x = density_data$x, y = density_data$y), aes(x = x, y = y), color = "red", linewidth = 1.5) +
-#   labs(title = "Skewed Normal Distribution with Rescaled Density",
-#        x = "DD5",
-#        y = "Site Index @ 50 years") +
-#   theme_minimal()
-```
-```{r}
-# shape_param <- .001  # Adjust for skewness
-# scale_param <- 1  # Determines spread
-# 
-# #set.seed(123)  # Ensure reproducibility
-# data_gompertz <- rgompertz(1000, shape = shape_param, scale = scale_param)
-# 
-# hist(data_gompertz, breaks = 50, probability = TRUE, col = "steelblue", border = "black",
-#      main = "Simulated Gompertz Distribution",
-#      xlab = "Value", ylab = "Density")
-# 
-# # Overlay density curve
-# lines(density(data_gompertz), col = "red", lwd = 2)
-```
-## test best fit to data
-```{r}
-# library(VGAM)  # For Gompertz fitting
-# library(sn)    # For skewed normal fitting
-# 
-# # Fit Gompertz distribution using maximum likelihood estimation (MLE)
-# gompertz_fit <- vglm(data_rescaled ~ 1, family = gompertz, data = data.frame(data_rescaled))
-# 
-# # Fit skewed normal distribution using MLE
-# sn_fit <- selm(data_rescaled ~ 1, family = "SN")
-# AIC_gompertz <- AIC(gompertz_fit)
-# AIC_sn <- AIC(sn_fit)
-# 
-# data.frame(Model = c("Gompertz", "Skewed Normal"),
-#            AIC = c(AIC_gompertz, AIC_sn)) %>%
-#   arrange(AIC)  # Lower AIC means better fit
-# ks_gompertz <- ks.test(data_rescaled, "pgompertz", coef(gompertz_fit)[1], coef(gompertz_fit)[2])
-# ks_sn <- ks.test(data_rescaled, "psn", coef(sn_fit)$param["xi"], coef(sn_fit)$param["omega"])
-# 
-# data.frame(Model = c("Gompertz", "Skewed Normal"),
-#            KS_p_value = c(ks_gompertz$p.value, ks_sn$p.value)) %>%
-#   arrange(desc(KS_p_value))  # Higher p-value suggests better fit
-```
-
-
-
 
 
