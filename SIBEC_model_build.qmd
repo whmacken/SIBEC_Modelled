@@ -447,7 +447,8 @@ for(species in species_list){
     s(bFFP, k = 10) +
     s(VPD_sm, k = 10) +
       s(rSMR, bs = "cr", k = 5) +
-    s(SNR, bs = "cr", k = 5),
+    s(SNR, bs = "cr", k = 5)+
+    ti(rSMR, SNR, k = c(5,5)),
   data = spp_data,
   method = "REML",
   select = TRUE
@@ -566,9 +567,95 @@ ggplot(
   scale_fill_viridis_c() +
   theme_bw()
 ```
+check variables importance to model
+
+```{r}
+rf_importance <- purrr::map_dfr(
+  names(final_models$rf),
+  function(species){
+
+    mod <- final_models$rf[[species]]
+
+    imp <- mod %>%
+      extract_fit_parsnip() %>%
+      pluck("fit") %>%
+      ranger::importance()
+
+    tibble(
+      TreeSpp = species,
+      Variable = names(imp),
+      Importance = as.numeric(imp)
+    )
+
+  }
+)
+
+rf_importance %>%
+  group_by(TreeSpp) %>%
+  slice_max(
+    Importance,
+    n = 10
+  ) %>%
+  arrange(TreeSpp, desc(Importance))
+ggplot(
+  rf_importance,
+  aes(
+    Importance,
+    reorder(Variable, Importance)
+  )
+) +
+  geom_col() +
+  facet_wrap(~TreeSpp, scales = "free") +
+  theme_bw()
 
 
+```
 
+```{r}
+gam_importance <- purrr::map_dfr(
+  names(final_models$gam),
+  function(species){
+
+    s_tab <- summary(
+      final_models$gam[[species]]
+    )$s.table
+
+    tibble(
+      TreeSpp = species,
+      Variable = rownames(s_tab),
+      edf = s_tab[, "edf"],
+      F = s_tab[, "F"],
+      p = s_tab[, "p-value"]
+    )
+
+  }
+)
+gam_importance %>%
+  arrange(
+    TreeSpp,
+    desc(F)
+  )
+
+ggplot(
+  gam_importance,
+  aes(
+    x = Variable,
+    y = TreeSpp,
+    fill = log10(F + 1)
+  )
+) +
+  geom_tile() +
+  scale_fill_viridis_c(
+    name = "log10(F)"
+  ) +
+  theme_bw() +
+  theme(
+    axis.text.x = element_text(
+      angle = 45,
+      hjust = 1
+    )
+  )
+```
 
 
 ```{r single partial dependence plots}
