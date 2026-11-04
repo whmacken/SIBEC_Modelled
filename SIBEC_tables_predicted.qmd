@@ -58,16 +58,6 @@ library(forcats)
 Read in SIBEC data from a .csv table export of a _Trees table from the VTrees database
 
 ```{r SIBEC data import}
-sibec.anal <- readRDS("./data/SIBEC_Analysis_data_2026.rds")%>%## cleaned and attributed SIBEC data
- 
- # mutate(SNR = as.numeric(factor(rSNR, levels = c("A", "B", "C", "D", "E"), ordered = TRUE))) %>% 
-  mutate(SNR = as.integer(
-      factor(SNR, levels = c("A", "B", "C", "D", "E", "F")))) %>% 
-  # mutate(rSMR = as.integer(
-  #    factor(rSMR, levels = c("0", "1", "2", "3", "4", "5","6","7","8")))) %>%
-  mutate(
-    DD5 = as.numeric(DD5_an),
-    CMD.adj = as.numeric(CMD.adj))
 
 predictors <- c("DD5_an", "SNR", "CMD.adj", "PAS_an", "CMI_an", "bFFP", "DD18_an", "Eref_an","rSMR", "VPD_sm")#,"aSMR",
 edatopic.sites <- readRDS( "./data/Predict_Edatopic_SI50_data_2026.rds") %>%## cleaned and attributed SIBEC data
@@ -79,10 +69,9 @@ edatopic.sites <- readRDS( "./data/Predict_Edatopic_SI50_data_2026.rds") %>%## c
    #   factor(rSMR, levels = c("0", "1", "2", "3", "4", "5","6","7","8")))) %>%
   mutate(
     DD5 = as.numeric(DD5_an),
-    CMD.adj = as.numeric(CMD.adj))# %>% mutate(SNR = as.numeric(SNR)) ## this is set of datapoints for each edatopic position in each BGC for prediction
-#fwrite(edatopic.sites, "./data/Edaphic_sites_test.csv")
-#predictors <- c("DD5", "rSMR", "aSMR", "SNR", "CMD.adj", "PAS", "CMI", "bFFP", "DD18", "Eref")
-# sibec13 <- readxl::read_xlsx("./inputs/sibec2013approx_final.xlsx") %>% mutate(BECSiteUnit = paste0(BGCUnit, "/", SiteSeries))
+    CMD.adj = as.numeric(CMD.adj))
+xx <- edatopic.sites |> filter(BGC %in% "CDFmm")
+
 sibec13 <- fread("./inputsGit/SIBEC_2013_Summary.csv") #%>% mutate(BECSiteUnit = paste0(BGCUnit, "/", SiteSeries))
 #SIBEC_2013_Summary# %>%
 ```
@@ -90,78 +79,306 @@ sibec13 <- fread("./inputsGit/SIBEC_2013_Summary.csv") #%>% mutate(BECSiteUnit =
 ##Predict edaphic positions with ensemble model and synthetic data
 This script can be run a single time for any version of the models and then commented out to save time when generating the tables and figures.
 ```{r}
+
 all.models <- readRDS("./models/final_species_models.rds")
-select.family = "rf"
-select.model <- all.models[[select.family]]
-#summary(gam_fit)
-spp.list <- names(select.model)
-species_grids <- list()
 
+model_families <- c(
+  "rf",
+  "svm",
+  "xgb",
+  "gam",
+  "stack",
+  "meta"
+ )
+# model_families <- c(
+#   "svm"
+#  )
 coast.bgc <- c("CWH", "CDF")
-edatopic.sites2 <- edatopic.sites |> filter(Zone %in% coast.bgc)
 
-for(species in spp.list){
+edatopic.sites2 <- edatopic.sites |>
+  filter(Zone %in% coast.bgc)
+#  model_family = "rf"
+# species = "Hw"
+all_species_grids <- list()
 
-  model <- select.model[[species]]
+for(model_family in model_families){
 
-preds <- switch(
-  select.family,
+  cat(model_family, "\n")
 
-  gam = predict(
-    model,
-    newdata = edatopic.sites2,
-    type = "response"
-  ),
+  select.model <- all.models[[model_family]]
 
-  rf = predict(
+  spp.list <- names(select.model)
+  
+  #spp.list = "Hw"
+
+  species_grids <- list()
+
+  for(species in spp.list){
+
+    cat("  ", species, "\n")
+
+    model <- select.model[[species]]
+
+    preds <- switch(
+
+      model_family,
+
+      gam = predict(
+        model,
+        newdata = edatopic.sites2,
+        type = "response"
+      ),
+
+      rf = predict(
+        model,
+        new_data = edatopic.sites2
+      ) |>
+        pull(.pred),
+      
+      xgb = predict(
     model,
     new_data = edatopic.sites2
-  ) %>%
+  ) |>
     pull(.pred),
 
-  stack = predict(
+  svm = predict(
     model,
     new_data = edatopic.sites2
-  ) %>%
-    pull(.pred)
+  ) |>
+    pull(.pred),
+
+
+      stack = predict(
+        model,
+        new_data = edatopic.sites2
+      ) |>
+        pull(.pred),
+  
+  meta = {
+
+    rf_pred <- predict(
+      model$rf,
+      new_data = edatopic.sites2
+    )$.pred
+
+    xgb_pred <- predict(
+      model$xgb,
+      new_data = edatopic.sites2
+    )$.pred
+
+    svm_pred <- predict(
+      model$svm,
+      new_data = edatopic.sites2
+    )$.pred
+
+    gam_pred <- predict(
+      model$gam,
+      newdata = edatopic.sites2
+    )
+
+    meta_x <- cbind(
+      rf = rf_pred,
+      xgb = xgb_pred,
+      svm = svm_pred,
+      gam = gam_pred
+    )
+
+    predict(
+      model$meta,
+      newx = meta_x,
+      s = "lambda.min"
+    ) |>
+      as.numeric()
+
+  }
+
+     )
+
+    tmp <- edatopic.sites2 |>
+      mutate(
+        pred_si50 = preds
+      )
+
+    bgc_summary <- tmp |>
+      group_by(
+        BGC,
+        rSMR,
+        SNR
+      ) |>
+      summarise(
+        SI50 = mean(
+          pred_si50,
+          na.rm = TRUE
+        ),
+        .groups = "drop"
+      )
+
+    # bgc_grids <- bgc_summary |>
+    #   split(.$BGC)
+    bgc_grids <- split(
+  bgc_summary,
+  bgc_summary$BGC
 )
 
-  tmp <- edatopic.sites2 %>%
-    mutate(
-      pred_si50 = preds
+    bgc_grids <- lapply(
+      bgc_grids,
+      function(x){
+
+        x |>
+          select(-BGC) |>
+          arrange(rSMR) |>
+          pivot_wider(
+            names_from = SNR,
+            values_from = SI50
+          )
+
+      }
     )
 
-  bgc_summary <- tmp %>%
-    group_by(BGC, rSMR, SNR) %>%
-    summarise(
-      SI50 = mean(pred_si50, na.rm = TRUE),
-      .groups = "drop"
-    )
-  
-  bgc_grids <- bgc_summary %>%
-  split(.$BGC)
+    species_grids[[species]] <- bgc_grids
 
+  }
 
-  bgc_grids <- lapply(
-    bgc_grids,
-    function(x){
+  all_species_grids[[model_family]] <- species_grids
 
-      x %>%
-        select(-BGC) |> 
-        arrange(rSMR) %>%
-        pivot_wider(
-          names_from = SNR,
-          values_from = SI50
+}
+
+saveRDS(
+  all_species_grids,
+  "./edatopic_preds/species_grids_all_models.rds"
+)
+```
+
+```{r}
+compare_grids <- function(
+  species,
+  bgc,
+  grids = all_species_grids,
+  models = names(grids)
+){
+
+  model_grids <- lapply(
+    models,
+    function(m){
+
+      grids[[m]][[species]][[bgc]] |>
+        pivot_longer(
+          -rSMR,
+          names_to = "SNR",
+          values_to = "SI50"
+        ) |>
+        mutate(
+          Model = toupper(m)
         )
 
     }
   )
 
-  species_grids[[species]] <- bgc_grids
+  bind_rows(model_grids) |>
+    pivot_wider(
+      names_from = Model,
+      values_from = SI50
+    )
+
 }
 
-species_grids[["Hw"]][["CWHws2"]]
+compare_grid_plot <- function(
+  species,
+  bgc,
+  grids = all_species_grids,
+  models = names(grids)
+){
+
+  dat <- lapply(
+    models,
+    function(m){
+
+      grids[[m]][[species]][[bgc]] |>
+        pivot_longer(
+          -rSMR,
+          names_to = "SNR",
+          values_to = "SI50"
+        ) |>
+        mutate(
+          Model = toupper(m)
+        )
+
+    }
+  ) |>
+    bind_rows()
+
+  ggplot(
+    dat,
+    aes(
+      factor(SNR),
+      factor(rSMR, levels = 8:0),
+      fill = SI50
+    )
+  ) +
+    geom_tile() +
+    geom_text(
+      aes(
+        label = round(SI50, 1)
+      ),
+      size = 3
+    ) +
+    facet_wrap(
+      ~ Model,
+      ncol = 3
+    ) +
+    scale_fill_viridis_c() +
+    labs(
+      title = paste(species, bgc),
+      x = "SNR",
+      y = "rSMR"
+    ) +
+    theme_bw()
+
+}
 ```
+
+
+
+```{r}
+all_species_grids <- readRDS( "./edatopic_preds/species_grids_all_models.rds"
+)
+cmp <- compare_grids(
+  species = "Hw",
+  bgc = "CWHdm3"
+)|>
+  mutate(
+    Diff = RF - GAM)
+
+ggplot(
+  cmp,
+  aes(
+    factor(SNR),
+    factor(rSMR, levels = 8:0),
+    fill = Diff
+  )
+) +
+  geom_tile() +
+  geom_text(
+    aes(label = round(Diff, 1))
+  ) +
+  scale_fill_gradient2(
+    low = "blue",
+    mid = "white",
+    high = "red"
+  ) +
+  theme_bw()
+
+compare_grid_plot(
+  species = "Fd",
+  bgc = "CWHdm1"
+)
+
+
+```
+```{r}
+
+```
+
 
 SIBEC summaries
 group into Site Series
