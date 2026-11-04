@@ -86,7 +86,7 @@ Use grid points from modelled_SIBEC_data_prep scripts
 spp.list = unique(sibec.anal$TreeSpp)
 bgc.list = unique(sibec.anal$BGC)
 #synth.dat <- fread("./data/Edaphic_sites_data_2025.csv")
-synth.dat <- fread("D:/OneDrive - Government of BC/CommonTables/BGCv13_3_2km_gridpts.csv") %>% slice_sample(n = 3, by="BGC") %>% select(PlotNumber = id, BGC, Latitude = ycoord, Longitude = xcoord, Elevation = elev) %>% mutate(Zone = str_extract(BGC, "[A-Z]+"), SlopeGradient = 0, Aspect = 0, SI50 = 0, purpose = "model") # add an id column for later use
+synth.dat <- fread("D:/OneDrive - Government of BC/CommonTables/BGCv13_3_2km_gridpts.csv") %>% slice_sample(n = 1, by="BGC") %>% select(PlotNumber = id, BGC, Latitude = ycoord, Longitude = xcoord, Elevation = elev) %>% mutate(Zone = str_extract(BGC, "[A-Z]+"), SlopeGradient = 0, Aspect = 0, SI50 = 0.5, purpose = "model") # add an id column for later use
 bgc.all <- unique(synth.dat$BGC)
 ### this is from the grid of points to be predicted to fill SIBEC model
 # keep a single example of each BGC, rSMR, SNR combination
@@ -114,12 +114,12 @@ xx <- sibec.anal %>% filter(BGC == "ESSFmcw")
 # add in a tree record for each rSMR = 0 
 ## read in suitability table and add SI50=0 across all edaphic positions when a species is out of range
 ```
-## Add in alpine or parkland sites for SI50=0
+## Add in alpine or parkland sites for SI50=0.5
 
 ```{r}
 alpine.dat <- fread("D:/OneDrive - Government of BC/CommonTables/BGCv13_3_2km_gridpts.csv") %>% 
   filter(
-    grepl("^BAFA|^CMA|^IMA", BGC))%>% select(PlotNumber = id, BGC, Latitude = ycoord, Longitude = xcoord, Elevation = elev) %>% mutate(Zone = str_extract(BGC, "[A-Z]+"), SlopeGradient = 0, Aspect = 0, SI50 = 0) %>%
+    grepl("^BAFA|^CMA|^IMA", BGC))%>% select(PlotNumber = id, BGC, Latitude = ycoord, Longitude = xcoord, Elevation = elev) %>% mutate(Zone = str_extract(BGC, "[A-Z]+"), SlopeGradient = 0, Aspect = 0, SI50 = 0.5) %>%
   slice_sample(n = 50, by="BGC")
 SNR = c("A", "B", "C", "D", "E")
 rSMR = c(1, 3, 4, 5, 7)
@@ -148,9 +148,9 @@ xx <- sibec.anal %>% filter(BGC == "ESSFmcw")
 ```{r}
 woodland.dat <- fread("D:/OneDrive - Government of BC/CommonTables/BGCv13_3_2km_gridpts.csv") %>% 
   filter(grepl("^ESSF", BGC) & substr(BGC, 7, 7) == "w") %>% 
-  select(PlotNumber = id, BGC, Latitude = ycoord, Longitude = xcoord, Elevation = elev) %>% mutate(Zone = str_extract(BGC, "[A-Z]+"), SlopeGradient = 0, Aspect = 0, SI50 = 0) %>%
+  select(PlotNumber = id, BGC, Latitude = ycoord, Longitude = xcoord, Elevation = elev) %>% mutate(Zone = str_extract(BGC, "[A-Z]+"), SlopeGradient = 0, Aspect = 0, SI50 = 0.5) %>%
   mutate(purpose = "cold_boundary") %>%
-  slice_sample(n = 50, by="BGC")
+  slice_sample(n = 5, by="BGC")
 SNR = c("A",  "C", "E")
 rSMR = c(1, 3, 4, 5, 7)
 high.trees <- c("Sx", "Sw", "Se", "Pl", "Hm", "Bl", "Ba", "Pa") # remove these trees from the woodland sites
@@ -178,7 +178,7 @@ Build a grid of edatopic positions for prediction of SIBEC values
 spp.list = unique(sibec.anal$TreeSpp)
 bgc.list = unique(sibec.anal$BGC)
 #synth.dat <- fread("./data/Edaphic_sites_data_2025.csv")
-climate.points <- fread("D:/OneDrive - Government of BC/CommonTables/BGCv13_3_2km_gridpts.csv") %>% slice_sample(n = 10, by="BGC") %>% select(PlotNumber = id, BGC, Latitude = ycoord, Longitude = xcoord, Elevation = elev) %>% mutate(Zone = str_extract(BGC, "[A-Z]+"), SlopeGradient = 0, Aspect = 0, SI50 = 0)
+climate.points <- fread("D:/OneDrive - Government of BC/CommonTables/BGCv13_3_2km_gridpts.csv") %>% slice_sample(n = 1, by="BGC") %>% select(PlotNumber = id, BGC, Latitude = ycoord, Longitude = xcoord, Elevation = elev) %>% mutate(Zone = str_extract(BGC, "[A-Z]+"), SlopeGradient = 0, Aspect = 0, SI50 = 0.5)
 SNR_code = c("A", "B", "C", "D", "E")
 rSMR_code = c(0,1, 2, 3, 4, 5, 6, 7, 8)
 
