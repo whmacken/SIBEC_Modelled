@@ -22,8 +22,7 @@ add_predictors_sibec <- function(
   if(add_asmr) {
     data <- assign_aSMR(
       data,
-      rules_table,
-      labels
+      rules_table
     )
   }
   

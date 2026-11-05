@@ -48,8 +48,8 @@ calc_solar <- function(data,
   data %>%
     mutate(
       SlopeDeg = slope_deg,
-      HLI = hli,
+      heat = hli,
       RelativeRadiation = cos_i,
-      ClearSkyRadiation = radiation
+      solar = radiation
     )
 }

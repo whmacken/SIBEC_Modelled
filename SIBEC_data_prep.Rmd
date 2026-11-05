@@ -60,11 +60,107 @@ sibec.anal <- merge(sibec.tree, sibec.env, by = c("PlotNumber")) %>%  dplyr::ren
 
 xx <- sibec.anal %>% filter(BGC == "ESSFmcw")
 ```
-## Update SIBEC classification
+## Update SIBEC BGC
 ```{r}
-# Update the SIBEC BGC based on overlap BGCv13
-# Assign to Site Series based on edatopic
 
+```
+
+Add in points for each species that represent excessive VPD locations
+BG for all but Fd and Py
+
+```{r}
+library(sf)
+library(dplyr)
+library(tidyr)
+
+# Read BGC polygon layer
+# bgc <- st_read("D:/OneDrive - Government of BC/CommonTables/BGCv13_dissolved.gpkg")
+# 
+# # Ensure common CRS
+# sibec.sf <- st_as_sf(
+#   sibec.anal,
+#   coords = c("Longitude", "Latitude"),
+#   crs = 4326
+# ) |>
+#   st_transform(st_crs(bgc))
+# 
+# target_bgc <- c(
+#   "CWHdm3",
+#   "CWHvm1",
+#   "CDFmm"
+# )
+# 
+# bgc_sub <- bgc %>%
+#   filter(BGC %in% target_bgc)
+# boundary_zone <- bgc_sub %>%
+#   mutate(
+#     geom_boundary = st_boundary(geometry)
+#   ) %>%
+#   st_as_sf() %>%
+#   st_set_geometry("geom_boundary") %>%
+#   st_buffer(100)
+# 
+# boundary_band <- st_intersection(
+#   bgc_sub,
+#   boundary_zone
+# )
+# 
+# random_pts <- boundary_band %>%
+#   group_by(BGC) %>%
+#   group_modify(
+#     ~{
+#       pts <- st_sample(
+#         .x,
+#         size = 10,
+#         type = "random"
+#       )
+# 
+#       st_sf(
+#         BGC = .x$BGC[1],
+#         geometry = pts
+#       )
+#     }
+#   ) %>%
+#   st_as_sf()
+# 
+# random_pts_df <- random_pts %>%
+#   bind_cols(
+#     st_coordinates(random_pts)
+#   ) %>%
+#   st_drop_geometry()
+# # 
+# # bgc_sub <- bgc %>%
+# #   filter(BGC %in% target_bgc)
+# # 
+# # # Intersect
+# # sibec.bgc <- st_join(
+# #   sibec.sf,
+# #   bgc |> select(BGC)
+# # )
+# 
+# # Back to data.frame if desired
+# sibec.bgc <- sibec.bgc |>
+#   st_drop_geometry()
+# 
+# 
+# 
+# eda_grid <- tribble(
+#   ~rSMR, ~SNR,
+#     1,    1,
+#     3,    3,
+#     5,    5,
+#     7,    4
+# )
+# absence_records <- missing_combos |>
+#   crossing(eda_grid)
+# 
+# sibec.augmented <- bind_rows(
+#   sibec.bgc |>
+#     mutate(
+#       synthetic_absence = FALSE
+#     ),
+#   absence_records
+# )
 ```
 
 
@@ -81,6 +177,7 @@ sibec.anal <- bind_rows(sibec.anal, amat.sibec)
 
 
 ## Synthetic data to fill in the missing edaphic space and out of climatic range
+Add edaphic limits to tree species
 Use grid points from modelled_SIBEC_data_prep scripts
 ```{r}
 spp.list = unique(sibec.anal$TreeSpp)
@@ -114,7 +211,7 @@ xx <- sibec.anal %>% filter(BGC == "ESSFmcw")
 # add in a tree record for each rSMR = 0 
 ## read in suitability table and add SI50=0 across all edaphic positions when a species is out of range
 ```
-## Add in alpine or parkland sites for SI50=0.5
+## Add in alpine or parkland sites for SI50=0.5 for cold limits
 
 ```{r}
 alpine.dat <- fread("D:/OneDrive - Government of BC/CommonTables/BGCv13_3_2km_gridpts.csv") %>% 
@@ -172,7 +269,6 @@ sibec.anal <- bind_rows(sibec.anal, woodland.dat)
 xx <- sibec.anal %>% filter(BGC == "ESSFmcw")
 ```
 
-
 Build a grid of edatopic positions for prediction of SIBEC values
 ```{r}
 spp.list = unique(sibec.anal$TreeSpp)
@@ -208,10 +304,10 @@ source("./_functions/add_sibec_attributes.R")
 #   vars.choose = 
 #       list_vars()
 #     )
-
+rules_table = fread("./inputsGit/aSMR_Rules_HalfStep_v11_09Dec2019.csv")
 sibec.anal2 <- add_predictors_sibec(
   sibec.anal,
-  add_asmr = FALSE,
+  add_asmr = TRUE,
   rules_table = rules_table,
   labels = labels)
 #fwrite(sibec.anal2, "./data/SIBEC_Analysis_data_2026.csv")
@@ -233,234 +329,5 @@ saveRDS(
 
 
 ```
-########### Older scripts
 
-```{r SIBEC data import}
-# sibec.anal <- sibec.anal %>% 
-#   mutate(rSNR = gsub("[+-]", "", NutrientRegime))
-# sibec.anal <- sibec.anal %>% mutate(rSNRg = ifelse(NutrientRegime %in% c("A", "B"), "P",
-#                                             ifelse(NutrientRegime %in% c("D", "E"), "R",
-#                                                  ifelse (NutrientRegime %in% c("C"), "PM", "other"))))
-# sibec.anal <- sibec.anal %>% mutate(eda1 = paste0(MoistureRegime, rSNR))
-# sibec.anal <- sibec.anal  %>%  mutate(rSMR = as.numeric(gsub("[+-]", "", MoistureRegime))) %>% mutate(rSMR_label = paste0("rSMR", MoistureRegime), Aspect = as.numeric(Aspect))
-# 
-# #fwrite(sibec.anal, "./data/SIBEC_Analysis_data_2025.csv")
-```
-
-
-```{r McCune and Keon heat load}
-# data = sibec.anal
-# calc_solar <- function(data,
-#                        doy = 172,
-#                        tau = 1) {
-# 
-#   deg2rad <- pi / 180
-# 
-#   # Extract variables
-#   lat <- data$Latitude
-#   slope_pct <- data$SlopeGradient
-#   aspect <- data$Aspect
-# 
-#   # Convert % slope to degrees
-#   slope_deg <- atan(slope_pct / 100) * 180 / pi
-# 
-#   # Convert to radians
-#   lat_rad <- lat * deg2rad
-#   slope_rad <- slope_deg * deg2rad
-#   aspect_rad <- aspect * deg2rad
-# 
-#   # Solar declination
-#   decl <- 23.45 * sin(2 * pi * (284 + doy) / 365)
-#   decl <- decl * deg2rad
-# 
-#   # Noon solar altitude
-#   alpha <- asin(
-#     sin(lat_rad) * sin(decl) +
-#       cos(lat_rad) * cos(decl)
-#   )
-# 
-#   # Relative solar loading
-#   cos_i <-
-#     sin(alpha) * cos(slope_rad) +
-#     cos(alpha) * sin(slope_rad) * cos(pi - aspect_rad)
-# 
-#   cos_i <- pmax(cos_i, 0)
-# 
-#   # Clear-sky radiation
-#   radiation <- 1361 * tau * cos_i
-# 
-#   # McCune & Keon Heat Load Index
-#   folded_aspect <- abs(180 - abs(aspect - 225))
-# 
-#   hli <-
-#     0.339 +
-#     0.808 *
-#     cos(folded_aspect * deg2rad) *
-#     cos(slope_rad) -
-#     0.196 *
-#     sin(folded_aspect * deg2rad) *
-#     sin(slope_rad)
-# 
-#   hli <- pmin(pmax(hli, 0), 1)
-# 
-#   # Append new variables
-#   data |>
-#     dplyr::mutate(
-#       SlopeDeg = slope_deg,
-#       HLI = hli,
-#       RelativeRadiation = cos_i,
-#       ClearSkyRadiation = radiation
-#     )
-# }
-# sibec.anal <- calc_solar(sibec.anal)
-
-```
-## Add climr data to training data points
-
-```{r add climate and aSMR import}
-## add in climate data and calculate aSMR
-# sibec.climate <- sibec.anal %>% as_tibble() %>% arrange(PlotNumber) %>% dplyr::mutate(id = row_number())
-# my_points <- sibec.climate %>% select(lat = Latitude, lon=Longitude, elev = Elevation, id) %>% na.omit %>% as.data.table |> mutate(lon = ifelse(lon >0, 0-lon, lon))
-# 
-# vars.choose <- grep("^(CMD_an|CMI_an|bFFP|Eref_an|PAS_an|DD5_an|DD18_an|PPT|VPD)", list_vars(), value = TRUE)
-# 
-# tic()
-# clim_dat <- downscale(
-#   xyz = my_points, 
-#   return_refperiod = TRUE,
-#   #which_refmap = "auto", 
-#  vars= vars.choose,
-#  )
-# toc()
-# sibec.anal2 <- clim_dat %>% left_join(sibec.climate)
-# sPPTtemp <- sibec.anal2 %>% select("id", "PPT_05","PPT_06","PPT_07","PPT_08","PPT_09" )
-# sibec.anal2$Moist <- rowSums(sPPTtemp[,2:6] >90)
-# sibec.anal2 <- sibec.anal2 %>% mutate(CMD_an = ifelse(Moist >4, CMD_an * 0.75, CMD_an))
-# 
-# #temp2 <- temp2[temp2$Moist != "",] # only those points calculated to be moist
-# #####################################
-# #sibec.anal2 <- sibec.anal2[,c("id","PPT_at","PPT_wt","PAS", "CMD", "DD5")]
-# #allDat2 <- cbind(wPPTtemp,CMDtemp)
-# #allDat <- cbind(wPPTtemp,sPPTtemp[c("Moist")])
-# #allDat <- cbind(allDat,temp,temp2) ### use this one if Moist indicator is completed above
-# sibec.anal2$PPT.dorm <- sibec.anal2$PPT_at + sibec.anal2$PPT_wt
-# sibec.anal2$Def <- 350 - sibec.anal2$PPT.dorm 
-# sibec.anal2$Def[sibec.anal2$Def < 0] <- 0 #negative values set to zero = no deficit
-# sibec.anal2$CMD <- sibec.anal2$CMD_an + sibec.anal2$Def
-# sibec.anal3 <- sibec.anal2 %>% select(id, CMD, DD5 = DD5_an, PAS = PAS_an, DD18 = DD18_an, CMI = CMI_an, bFFP, Eref = Eref_an)
-# sibec.anal3 <- left_join(sibec.anal3, sibec.climate, by = "id")
-# # convert CMD to aSMR
-# sibec.anal3 <- sibec.anal3 %>%
-#   mutate(
-#     CMD.adj = case_when(
-#       rSMR == 0 ~ CMD + 500,
-#       rSMR == 1 ~ CMD + 375,
-#       rSMR == 2 ~ CMD + 250,
-#       rSMR == 3 ~ CMD + 125,
-#       rSMR == 4 ~ CMD,
-#       rSMR == 5 ~ CMD / 2,
-#       rSMR == 6 ~ CMD / 4,
-#       rSMR == 7 ~ CMD / 8,
-#       rSMR == 8 ~ CMD / 32,
-#       TRUE ~ NA_real_
-#     )
-#   ) %>% 
-#   mutate(CMD.adj = ifelse(CMD.adj < 0, 0, CMD.adj))
-# 
-# # Read the rules table
-# # rules_table <- fread("../aSMR_X_rSMR/inputs/aSMR_Rules_HalfStep_v13_7May2025.csv")
-# # labels <- fread("../aSMR_X_rSMR/inputs/aSMR_labels.csv")
-# # 
-# # # Ensure column names are consistent
-# # colnames(rules_table) <- c("SMRLevel", "CMD.range", "aSMR")
-# # #sibec.anal.test <- sibec.anal2 %>% filter(PlotNumber == "0002801") %>% filter(TreeSpp == "Ss")
-# # # Merge with sibec.anal based on the rSMR field
-# # sibec.anal4 <- sibec.anal3 %>%
-# #   left_join(rules_table, by = c("rSMR" = "SMRLevel")) %>%  filter(CMD.range <= CMD.adj) %>%  group_by(PlotNumber, rSMR) %>% slice_max(CMD.range) %>% ungroup() %>% 
-# #   select(-CMD, -CMD.range) %>% data.frame %>% left_join(labels, by = c("aSMR" = "aSMR")) 
-# # sibec.anal4 <- sibec.anal4 %>% mutate(eda2 = paste0(aSMR_label, '/', rSNRg))
-# # sibec.anal4$TreeSpp <- sibec.anal4$TreeSpp %>% recode(
-# #   "Sw" = "Sx", "Se" = "Sx")
-# ```
-# ```{r}
-# predictors <- c("DD5", "rSNR", "CMD.adj", "PAS", "CMI", "bFFP", "DD18", "Eref","rSMR")#"aSMR",
-# 
-# sibec.outliers <- sibec.anal3 %>% filter(purpose == "sibec") %>% 
-#   mutate(SNR = as.numeric(factor(rSNR, levels = c("A", "B", "C", "D", "E"), ordered = TRUE))) %>% 
-#  # mutate(SNR = as.numeric(factor(rSNR, levels = c("A", "B", "C", "D", "E"), ordered = TRUE))) %>% 
-#   mutate(rSMR = as.numeric(rSMR))%>%
-#   mutate(
-#     DD5 = as.numeric(DD5),
-#     CMD.adj = as.numeric(CMD.adj))
-# 
-# valid_species <- sibec.outliers  %>%
-#   filter(SI50 > 0) %>%
-#   count(TreeSpp) %>%
-#   filter(n >= 50) %>%
-#   pull(TreeSpp)
-# 
-# # Step 2: Filter main dataset to retain only those species
-# sibec.outliers <- sibec.outliers %>%
-#   filter(TreeSpp %in% valid_species)
-# 
-# sibec.outliers <- sibec.outliers %>%
-#   drop_na(SI50, all_of(predictors)) %>%
-#   group_by(TreeSpp) %>%
-#   mutate(
-#     model = list(
-#       lm(reformulate(predictors, response = "SI50"),
-#          data = cur_data())
-#     ),
-#     cooks_distance = cooks.distance(model[[1]]),
-#     is_outlier = cooks_distance > (4 / n())
-#   ) %>%
-#   ungroup()
-# 
-# # sibec.outliers <- sibec.outliers %>% select(PlotNumber, TreeSpp, SI50, predictors) %>% 
-# #   group_by(TreeSpp) %>%
-# #   dplyr::mutate(
-# #     model = list(lm(reformulate(predictors, response = "SI50"), data = cur_data())),
-# #     #model = list(lm(reformulate(predictors, response = "SI50"), data = pick(everything()))),
-# #     # + Latitude
-# # #    model = list(lm(SI50 ~ DD5 + rSMR + aSMR + SNR + CMD.adj + PAS + CMI + bFFP + DD18+ Eref, data = cur_data())),# + Latitude
-# #     cooks_distance = cooks.distance(model[[1]]),
-# #     is_outlier = cooks_distance > (4 / n())  # Standard threshold for large influence
-# # #is_outlier = cooks_distance > (1 / n())  # Standard threshold for large influence
-# #   ) %>%
-# #   unnest(c(cooks_distance, is_outlier))
-# 
-# # View flagged outliers
-# #outliers <- sibec.outliers %>% filter(is_outlier == TRUE) %>% select(PlotNumber, TreeSpp, SI50, cooks_distance, is_outlier)
-# outliers <- sibec.outliers %>% filter(cooks_distance >.5 ) %>% select(PlotNumber, TreeSpp, SI50, cooks_distance, is_outlier)
-# 
-# 
-# ggplot(outliers, aes(x = PlotNumber, y = cooks_distance)) +
-#   geom_point() +
-#   geom_hline(yintercept = (4 / nrow(sibec.anal4)), color = "red", linetype = "dashed") +
-#   labs(title = "Cook's Distance for Each PlotNumber",
-#        x = "PlotNumber",
-#        y = "Cook's Distance") +
-#   theme_minimal()
-# sibec.anal4 <- sibec.anal4 %>% filter(!PlotNumber %in% outliers$PlotNumber) #%>% select(-PlotNumber)
-```
-
-
-build a edatopic (SNR by SMR) variable
-```{r add climate and aSMR import}
-# sibec.anal5 <- sibec.anal4   %>%
-#   mutate(SNR = as.numeric(factor(rSNR, levels = c("A", "B", "C", "D", "E"), ordered = TRUE)))
-# sibec.anal <- sibec.anal5 %>% filter(!purpose == "edatopic") %>% select(-purpose)
-# edatopic.grid <- sibec.anal5 %>% filter(purpose == 'edatopic') %>% select(-purpose)
-# #sibec.anal5 <- sibec.anal5 %>% mutate(SNR = ifelse(SNR == 1, -40, ifelse(SNR == 2, -15, ifelse(SNR == 3, 0, ifelse(SNR == 4, 20, ifelse(SNR == 5, 30, NA))))))
-# fwrite(sibec.anal, "./data/SIBEC_Analysis_data_2025.csv")
-# fwrite(edatopic.grid, "./data/SIBEC_Edatopic_data_2025.csv")
-# #xx <- sibec.anal4 %>% group_by(TreeSpp) %>%  summarize(n=n()) # check the number of records for each rSMR)
-```
-Other potential predictors
-Slope/aspect adjusted variables (DD5, CMD)
-Potential solar radiation
-
-```{r potenial solar radiation}
-
-```
 

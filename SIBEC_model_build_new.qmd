@@ -78,14 +78,14 @@ sibec.anal <- readRDS("./data/SIBEC_Analysis_data_2026.rds") %>%
     DD5 = as.numeric(DD5_an),
     CMD.adj = as.numeric(CMD.adj))
 
-predictors <- c("DD5_an", "SNR", "CMD.adj", "PAS_an", "CMI_an", "bFFP", "DD18_an", "Eref_an","rSMR", "VPD_sm")#,"aSMR",
+
 ###For random forests probably need some bounding data otherwise no extrapolation into sites outside the training data
 ###Ensemble models may be better for extrapolation but challenges in getting to prediction 
 
-sibec.coast <- sibec.anal %>% filter(Zone %in% c("CWH", "MH", "CDF"))
-sibec.interior <- sibec.anal %>% filter(!Zone %in% c("CWH", "MH", "CDF")) 
+sibec.coast <- sibec.anal %>% filter(Zone %in% c("CWH", "MH", "CDF", "CMA"))
+sibec.interior <- sibec.anal %>% filter(!Zone %in% c("CWH", "MH", "CDF", "CMA")) 
 ## select set for running models
-sibec.tst = sibec.coast
+sibec.tst = sibec.anal
 # Step 1: Calculate non-zero SI50 count per TreeSpp
 valid_species <- sibec.tst %>%
   filter(SI50 > 0) %>%
@@ -138,36 +138,8 @@ SI_plot <- ggplot(SI_spp_subset, aes(x=eda1, y=SI50, fill=rSNRg)) +
 ```{r flag and remove outliers}
 sibec.lm <- sibec.tst 
 #aspect.class = as.factor(aspect.class))
-sibec.lm <- sibec.lm %>% select(PlotNumber, BGC, TreeSpp, purpose, SI50, predictors) #SI50, DD5, rSMR, aSMR, SNR, CMD.adj, PAS, CMI, bFFP, DD18,  Eref)#Latitude,
-
-# sibec.outliers <- sibec.lm %>%
-#   group_by(TreeSpp) %>%
-#   dplyr::mutate(
-#     #model = list(lm(reformulate(predictors, response = "SI50"), data = cur_data())),
-#     model = list(lm(reformulate(predictors, response = "SI50"), data = pick(everything()))),
-#     # + Latitude
-# #    model = list(lm(SI50 ~ DD5 + rSMR + aSMR + SNR + CMD.adj + PAS + CMI + bFFP + DD18+ Eref, data = cur_data())),# + Latitude
-#     cooks_distance = cooks.distance(model[[1]]),
-#     is_outlier = cooks_distance > (4 / n())  # Standard threshold for large influence
-# #is_outlier = cooks_distance > (1 / n())  # Standard threshold for large influence
-#   ) %>%
-#   unnest(c(cooks_distance, is_outlier))
-# 
-# # View flagged outliers
-# #outliers <- sibec.outliers %>% filter(is_outlier == TRUE) %>% select(PlotNumber, TreeSpp, SI50, cooks_distance, is_outlier)
-# outliers <- sibec.outliers %>% filter(cooks_distance >.5 ) %>% select(PlotNumber, TreeSpp, SI50, cooks_distance, is_outlier)
-# 
-# 
-# ggplot(outliers, aes(x = PlotNumber, y = cooks_distance)) +
-#   geom_point() +
-#   geom_hline(yintercept = (4 / nrow(sibec.lm)), color = "red", linetype = "dashed") +
-#   labs(title = "Cook's Distance for Each PlotNumber",
-#        x = "PlotNumber",
-#        y = "Cook's Distance") +
-#   theme_minimal()
-# sibec.lm <- sibec.lm %>% filter(!PlotNumber %in% outliers$PlotNumber) #%>% select(-PlotNumber)
-# count the number of rows per tree species
-
+predictors <- c("DD5_an", "SNR", "CMD.adj", "PAS_an", "CMI_an", "bFFP", "DD18_an", "Eref_an","aSMR", "VPD_sm", "TD", "CMD_an", "heat", "solar")#,,,"rSMR"
+sibec.lm <- sibec.lm %>% select(PlotNumber, BGC, TreeSpp, purpose, SI50, predictors) 
 #filter species with less than 50 observations
 sibec.anal2 <- sibec.lm %>%
   mutate(
@@ -183,8 +155,8 @@ n_data <- n_training |> filter(purpose == "data")
 
 sibec.anal2 <- sibec.anal2 |>  filter(
   complete.cases(
-    CMD.adj, DD5_an, CMI_an, DD18_an,
-    Eref_an, PAS_an, bFFP, rSMR, SNR, SI50
+    CMD.adj, DD5_an, CMI_an, DD18_an, VPD_sm, TD, heat, solar,
+    Eref_an, PAS_an, bFFP, aSMR,  SNR, SI50
   )) |> 
    filter(TreeSpp %in% n_data$TreeSpp[n_data$count > 50]) |> 
   filter(TreeSpp != "Sx")
@@ -208,7 +180,7 @@ final_models <- list(
 
 species_list <- unique(sibec.anal2$TreeSpp)
 
-# species_list = "Hw"
+species_list = "Pl"
 # species = "Ss"
 for(species in species_list){
 
@@ -243,8 +215,15 @@ for(species in species_list){
       response = "SI50"
     ),
     data = train_tbl
-  ) %>%
-    step_interact(~ rSMR:SNR)
+  ) 
+svm_recipe <- recipe(
+  reformulate(
+    predictors,
+    response = "SI50"
+  ),
+  data = train_tbl
+) %>%
+  step_normalize(all_numeric_predictors())
     
       rf_wf <- workflow() %>%
     add_recipe(model_recipe) %>%
@@ -270,7 +249,7 @@ for(species in species_list){
     )
 
   svm_wf <- workflow() %>%
-    add_recipe(model_recipe) %>%
+    add_recipe(svm_recipe) %>%
     add_model(
       svm_rbf() %>%
         set_engine("kernlab") %>%
@@ -354,17 +333,20 @@ gam_oof <- purrr::map_dfr(
 
     gam_fold <- mgcv::gam(
       SI50 ~
-        s(CMD.adj, k = 10) +
+        #s(CMD.adj, k = 10) +
         s(DD5_an, k = 10) +
         s(CMI_an, k = 10) +
+        s(CMD_an, k = 10) +
         s(DD18_an, k = 10) +
         s(Eref_an, k = 10) +
         s(PAS_an, k = 10) +
         s(bFFP, k = 10) +
         s(VPD_sm, k = 10) +
-        s(rSMR, bs = "cr", k = 5) +
-        s(SNR,  bs = "cr", k = 5) +
-        ti(rSMR, SNR, k = c(5,5)),
+        #s(rSMR, bs = "cr", k = 5) +
+        #s(SNR,  bs = "cr", k = 5) +
+        ti(TD, DD5_an, k = c(5, 5)) +
+        te(heat, DD5_an, k = c(10, 10))+
+        te(aSMR, SNR, k = c(5,5)),
       data = analysis_dat,
       method = "REML",
       select = TRUE
@@ -410,30 +392,20 @@ svm_fit <- fit(
     gam_fit <- mgcv::gam(
 
     SI50 ~
-
-      s(CMD.adj, k = 10) +
-      s(DD5_an, k = 10) +
-      s(CMI_an, k = 10) +
-      s(DD18_an, k = 10) +
-      s(Eref_an, k = 10) +
-      s(PAS_an, k = 10) +
-      s(bFFP, k = 10) +
-      s(VPD_sm, k = 10) +
-
-      s(rSMR,
-        bs = "cr",
-        k = 5) +
-
-      s(SNR,
-        bs = "cr",
-        k = 5) +
-
-      ti(
-        rSMR,
-        SNR,
-        k = c(5,5)
-      ),
-
+        #s(CMD.adj, k = 10) +
+        s(DD5_an, k = 10) +
+        s(CMI_an, k = 10) +
+      s(CMD_an, k = 10) +
+        s(DD18_an, k = 10) +
+        s(Eref_an, k = 10) +
+        s(PAS_an, k = 10) +
+        s(bFFP, k = 10) +
+        s(VPD_sm, k = 10) +
+        #s(rSMR, bs = "cr", k = 5) +
+        #s(SNR,  bs = "cr", k = 5) +
+      ti(TD, DD5_an, k = c(5, 5))+
+        te(CMD.adj, rSMR, k = c(10, 5))+
+        te(rSMR, SNR, k = c(5,5)),
     data = train_tbl,
     method = "REML",
     select = TRUE
@@ -538,71 +510,7 @@ meta_pred2 <- predict(
   as.numeric()
 
 
-  ## pred all train data
-# 
-# stack_train_pred <- predict(
-#   stack_fit,
-#   new_data = train_tbl
-# )$.pred
-# 
-#   gam_train_pred <- predict(
-#     gam_fit,
-#     newdata = train_tbl
-#   )
-
-
  
-#   coef(
-#   meta_fit,
-#   s = "lambda.min"
-# )
-# 
-# meta_fit <- lm(
-#   SI50 ~ stack + gam,
-#   data = meta_train
-# )
-# 
-# summary(meta_fit)
-# 
-# 
-# meta_assess <- tibble(
-#   stack = stack_pred,
-#   gam = gam_pred
-# )
-#   summary(meta_fit)$coefficients
-  # R2 = c(
-#   rsq_vec(assess_tbl$SI50, rf_pred),
-#   rsq_vec(assess_tbl$SI50, gam_pred),
-#   rsq_vec(assess_tbl$SI50, stack_pred),
-#   rsq_vec(assess_tbl$SI50, stack_gam_pred)
-# )  
-#   
-# ################     
-#   meta_train <- tibble(
-#   gam = gam_oof$gam,
-#   stack = stack_oof$stack,
-#   SI50 = train_tbl$SI50
-# )
-# 
-#   meta_fit <- glmnet::cv.glmnet(
-#     x = as.matrix(
-#       meta_train[, c("stack","gam")]
-#     ),
-#     y = meta_train$SI50
-#   )
-#   
-#   ### meta predictions
-#     meta_assess <- tibble(
-#     stack = stack_pred,
-#     gam = gam_pred
-#   )
-# 
-#   stack_gam_pred <- predict(
-#     meta_fit,
-#     newx = as.matrix(meta_assess),
-#     s = "lambda.min"
-#   ) |>
-#     as.numeric()
   ### supply model metrics
   metric_df <- tibble(  
   
@@ -687,17 +595,21 @@ svm_final <- fit(
 
 gam_final <- mgcv::gam(
   SI50 ~
-    s(CMD.adj, k = 10) +
-    s(DD5_an, k = 10) +
-    s(CMI_an, k = 10) +
-    s(DD18_an, k = 10) +
-    s(Eref_an, k = 10) +
-    s(PAS_an, k = 10) +
-    s(bFFP, k = 10) +
-    s(VPD_sm, k = 10) +
-    s(rSMR, bs = "cr", k = 5) +
-    s(SNR, bs = "cr", k = 5) +
-    ti(rSMR, SNR, k = c(5,5)),
+        #s(CMD.adj, k = 10) +
+        s(TD, k = 10) +
+          s(DD5_an, k = 10) +
+        s(CMI_an, k = 10) +
+      s(CMD_an, k = 10) +
+        s(DD18_an, k = 10) +
+        s(Eref_an, k = 10) +
+        s(PAS_an, k = 10) +
+        s(bFFP, k = 10) +
+        s(VPD_sm, k = 10) +
+        #s(rSMR, bs = "cr", k = 5) +
+        #s(SNR,  bs = "cr", k = 5) +
+          ti(TD, DD5_an, k = c(5, 5)) +
+        te(CMD.adj, rSMR, k = c(10, 5))+
+        te(rSMR, SNR, k = c(5,5)),
   data = spp_data,
   method = "REML",
   select = TRUE
@@ -783,10 +695,10 @@ stack_final <- stacks() %>%
 ### Save models
     final_models$rf[[species]] <- rf_final
     final_models$xgb[[species]] <- xgb_final
-        final_models$svm[[species]] <- svm_final
-  final_models$gam[[species]] <- gam_final
-  final_models$stack[[species]] <- stack_final
-  final_models$meta[[species]] <- list(
+    final_models$svm[[species]] <- svm_final
+    final_models$gam[[species]] <- gam_final
+    final_models$stack[[species]] <- stack_final
+    final_models$meta[[species]] <- list(
   rf = rf_final,
   xgb = xgb_final,
   svm = svm_final,
@@ -801,419 +713,6 @@ saveRDS(
   "./models/final_species_models.rds"
 )
 
-```
-
-
-```{r}
-# species_metrics <- list()
-# species_predictions <- list()
-# final_models <- list(
-#   rf = list(),
-#   gam = list(),
-#   stack = list(),
-#   stack_gam = list()
-# )
-# model_list <- list(
-#   rf = list(),
-#   gam = list(),
-#   stack = list()
-# )
-# species_list <- unique(sibec.anal2$TreeSpp)
-# species_list = "Fd"
-# species = "Fd"
-# for(species in species_list){
-# 
-#   cat(species, "\n")
-# 
-#   spp_data <- sibec.anal2 %>%
-#     filter(TreeSpp == species)
-# 
-#   if(nrow(spp_data) < 50) next
-# 
-#   #-----------------------------
-#   # Train / Assessment split
-#   #-----------------------------
-# 
-#   # split_obj <- initial_split(
-#   #   spp_data,
-#   #   prop = 0.8,
-#   #   strata = purpose
-#   # )
-#   # 
-#   split_obj <-group_initial_split(
-#   spp_data,
-#   group = BGC,
-#   prop = 0.8
-# )
-# 
-#   train_tbl <- training(split_obj)
-#   assess_tbl <- testing(split_obj)
-# 
-#   cv_folds <- vfold_cv(
-#     train_tbl,
-#     v = 5,
-#     strata = purpose
-#   )
-#     
-#   model_recipe <- recipe(
-#     reformulate(predictors, response = "SI50"),
-#     data = train_tbl
-#   ) %>%
-#     step_interact(~ rSMR:SNR)
-#   
-#     
-#   rf_wf <- workflow() %>%
-#     add_recipe(model_recipe) %>%
-#     add_model(
-#       rand_forest(
-#         trees = 500
-#       ) %>%
-#         set_engine(
-#           "ranger",
-#           importance = "permutation"
-#         ) %>%
-#         set_mode("regression")
-#     )
-#       
-#     xgb_wf <- workflow() %>%
-#     add_recipe(model_recipe) %>%
-#     add_model(
-#       boost_tree(
-#         trees = 200
-#       ) %>%
-#         set_engine("xgboost") %>%
-#         set_mode("regression")
-#     )
-#         
-#       svm_wf <- workflow() %>%
-#     add_recipe(model_recipe) %>%
-#     add_model(
-#       svm_rbf() %>%
-#         set_engine("kernlab") %>%
-#         set_mode("regression")
-#     )
-#       
-#         ctrl <- control_resamples(
-#     save_pred = TRUE,
-#     save_workflow = TRUE
-#   )
-# 
-#   rf_res <- fit_resamples(
-#     rf_wf,
-#     cv_folds,
-#     metrics = metric_set(rmse, mae, rsq),
-#     control = ctrl
-#   )
-# 
-#   xgb_res <- fit_resamples(
-#     xgb_wf,
-#     cv_folds,
-#     metrics = metric_set(rmse, mae, rsq),
-#     control = ctrl
-#   )
-# 
-#   svm_res <- fit_resamples(
-#     svm_wf,
-#     cv_folds,
-#     metrics = metric_set(rmse, mae, rsq),
-#     control = ctrl
-#   )
-#   
-#     stack_fit <- stacks() %>%
-#     add_candidates(xgb_res) %>%
-#     add_candidates(rf_res) %>%
-#     add_candidates(svm_res) %>%
-#     blend_predictions() %>%
-#     fit_members()
-#     
-#       rf_fit <- fit(
-#     rf_wf,
-#     train_tbl
-#   )
-#       
-#         gam_fit <- mgcv::gam(
-#     SI50 ~
-#       s(CMD.adj, k = 10) +
-#       s(DD5_an, k = 10) +
-#       s(CMI_an, k = 10) +
-#       s(DD18_an, k = 10) +
-#       s(Eref_an, k = 10) +
-#       s(PAS_an, k = 10) +
-#       s(bFFP, k = 10) +
-#       s(VPD_sm, k=10)+
-#       s(rSMR, bs = "cr", k = 5) +
-#     s(SNR, bs = "cr", k = 5)+
-#     ti(rSMR, SNR, k = c(5,5)),
-#     data = train_tbl,
-#     method = "REML",
-#     select = TRUE
-#   )
-# 
-#   rf_pred <- predict(
-#     rf_fit,
-#     assess_tbl
-#   )$.pred
-# 
-#   gam_pred <- predict(
-#     gam_fit,
-#     newdata = assess_tbl
-#   )
-#     
-#   stack_pred <- predict(
-#     stack_fit,
-#     new_data = assess_tbl
-#   )$.pred
-#   
-#   rf_train_pred <- predict(
-#   rf_fit,
-#   train_tbl
-# )$.pred
-# 
-# gam_train_pred <- predict(
-#   gam_fit,
-#   newdata = train_tbl
-# )
-# 
-# stack_train_pred <- predict(
-#   stack_fit,
-#   new_data = train_tbl
-# )$.pred
-#   
-#   meta_train <- tibble(
-#   rf = rf_train_pred,
-#   gam = gam_train_pred,
-#   stack = stack_train_pred,
-#   SI50 = train_tbl$SI50
-# )
-# #   meta_fit <- lm(
-# #   SI50 ~ rf + gam + stack,
-# #   data = meta_train
-# # )
-#   meta_fit <- glmnet::cv.glmnet(
-#   x = as.matrix(meta_train[,c("rf","gam","stack")]),
-#   y = meta_train$SI50
-# )
-#   meta_assess <- tibble(
-#   rf = rf_pred,
-#   gam = gam_pred,
-#   stack = stack_pred
-# )
-#   stack_gam_pred <- predict(
-#   meta_fit,
-#   newx = as.matrix(meta_assess),
-#   s = "lambda.min"
-# ) |>
-#   as.numeric()
-#     metric_df <- tibble(
-#     TreeSpp = species,
-# Model = c(
-#   "RF",
-#   "GAM",
-#   "STACK",
-#   "STACK_GAM"
-# ),
-#     # R2 = c(
-#     #   cor(assess_tbl$SI50, rf_pred)^2,
-#     #   cor(assess_tbl$SI50, gam_pred)^2,
-#     #   cor(assess_tbl$SI50, stack_pred)^2
-#     # ),
-# R2 = c(
-#   rsq_vec(assess_tbl$SI50, rf_pred),
-#   rsq_vec(assess_tbl$SI50, gam_pred),
-#   rsq_vec(assess_tbl$SI50, stack_pred),
-#   rsq_vec(assess_tbl$SI50, stack_gam_pred)
-# ),
-#     # RMSE = c(
-#     #   rmse_vec(assess_tbl$SI50, rf_pred),
-#     #   rmse_vec(assess_tbl$SI50, gam_pred),
-#     #   rmse_vec(assess_tbl$SI50, stack_pred)
-#     # ),
-#     # MAE = c(
-#     #   mae_vec(assess_tbl$SI50, rf_pred),
-#     #   mae_vec(assess_tbl$SI50, gam_pred),
-#     #   mae_vec(assess_tbl$SI50, stack_pred)
-#     # ),
-# RMSE = c(
-#   rmse_vec(assess_tbl$SI50, rf_pred),
-#   rmse_vec(assess_tbl$SI50, gam_pred),
-#   rmse_vec(assess_tbl$SI50, stack_pred),
-#   rmse_vec(assess_tbl$SI50, stack_gam_pred)
-# ),
-# 
-# MAE = c(
-#   mae_vec(assess_tbl$SI50, rf_pred),
-#   mae_vec(assess_tbl$SI50, gam_pred),
-#   mae_vec(assess_tbl$SI50, stack_pred),
-#   mae_vec(assess_tbl$SI50, stack_gam_pred)
-# ),
-#     n = nrow(assess_tbl)
-#   )
-# 
-#   species_metrics[[species]] <- metric_df
-#   print(metric_df)
-#   cat(
-#   species,
-#   "RF =", round(metric_df$R2[metric_df$Model=="RF"],3),
-#   "GAM =", round(metric_df$R2[metric_df$Model=="GAM"],3),
-#   "STACK =", round(metric_df$R2[metric_df$Model=="STACK"],3),
-#   "\n"
-# )
-#   
-#     species_predictions[[species]] <- bind_rows(
-# 
-#     tibble(
-#       TreeSpp = species,
-#       Model = "RF",
-#       SI50 = assess_tbl$SI50,
-#       Pred = rf_pred
-#     ),
-# 
-#     tibble(
-#       TreeSpp = species,
-#       Model = "GAM",
-#       SI50 = assess_tbl$SI50,
-#       Pred = gam_pred
-#     ),
-# 
-#     tibble(
-#       TreeSpp = species,
-#       Model = "STACK",
-#       SI50 = assess_tbl$SI50,
-#       Pred = stack_pred
-#     ),
-#     tibble(
-#   TreeSpp = species,
-#   Model = "STACK_GAM",
-#   SI50 = assess_tbl$SI50,
-#   Pred = stack_gam_pred
-# )
-# 
-#   )
-#   model_list$rf[[species]] <- rf_fit
-#   model_list$gam[[species]] <- gam_fit
-#   model_list$stack[[species]] <- stack_fit
-#   
-#   full_recipe <- recipe(
-#   reformulate(predictors, response = "SI50"),
-#   data = spp_data
-# ) %>%
-#   step_interact(~ rSMR:SNR)
-#   
-#   rf_final <- workflow() %>%
-#   add_recipe(full_recipe) %>%
-#   add_model(
-#     rand_forest(
-#       trees = 500
-#     ) %>%
-#       set_engine(
-#         "ranger",
-#         importance = "permutation"
-#       ) %>%
-#       set_mode("regression")
-#   ) %>%
-#   fit(spp_data)
-#   
-#   gam_final <- mgcv::gam(
-#   SI50 ~
-#     s(CMD.adj, k = 10) +
-#     s(DD5_an, k = 10) +
-#     s(CMI_an, k = 10) +
-#     s(DD18_an, k = 10) +
-#     s(Eref_an, k = 10) +
-#     s(PAS_an, k = 10) +
-#     s(bFFP, k = 10) +
-#     s(VPD_sm, k = 10) +
-#       s(rSMR, bs = "cr", k = 5) +
-#     s(SNR, bs = "cr", k = 5)+
-#     ti(rSMR, SNR, k = c(5,5)),
-#   data = spp_data,
-#   method = "REML",
-#   select = TRUE
-# )
-# 
-#   full_folds <- vfold_cv(
-#   spp_data,
-#   v = 5,
-#   strata = purpose
-# )
-#   rf_full_res <- fit_resamples(
-#   rf_wf,
-#   full_folds,
-#   metrics = metric_set(rmse, mae),
-#   control = ctrl
-# )
-# 
-# xgb_full_res <- fit_resamples(
-#   xgb_wf,
-#   full_folds,
-#   metrics = metric_set(rmse, mae),
-#   control = ctrl
-# )
-# 
-# svm_full_res <- fit_resamples(
-#   svm_wf,
-#   full_folds,
-#   metrics = metric_set(rmse, mae),
-#   control = ctrl
-# )
-# stack_final <- stacks() %>%
-#   add_candidates(xgb_full_res) %>%
-#   add_candidates(rf_full_res) %>%
-#   add_candidates(svm_full_res) %>%
-#   blend_predictions() %>%
-#   fit_members()
-# 
-# rf_full_pred <- predict(
-#   rf_final,
-#   spp_data
-# )$.pred
-# 
-# gam_full_pred <- predict(
-#   gam_final,
-#   newdata = spp_data
-# )
-# 
-# stack_full_pred <- predict(
-#   stack_final,
-#   new_data = spp_data
-# )$.pred
-# 
-# meta_full <- tibble(
-#   rf = rf_full_pred,
-#   gam = gam_full_pred,
-#   stack = stack_full_pred,
-#   SI50 = spp_data$SI50
-# )
-# meta_final <- glmnet::cv.glmnet(
-#   x = as.matrix(
-#     meta_full[, c("rf","gam","stack")]
-#   ),
-#   y = meta_full$SI50
-# )
-# final_models$rf[[species]] <- rf_final
-# final_models$gam[[species]] <- gam_final
-# final_models$stack[[species]] <- stack_final
-# final_models$stack_gam[[species]] <- list(
-#   meta = meta_final,
-#   rf = rf_final,
-#   gam = gam_final,
-#   stack = stack_final
-# )
-# }
-# 
-# saveRDS(
-#   final_models,
-#   "./models/final_species_models.rds"
-# )
-# 
-# saveRDS(
-#   stack_final,
-#   paste0(
-#     "./models/stack_final_",
-#     species,
-#     ".rds"
-#   )
-# )
 ```
 
 

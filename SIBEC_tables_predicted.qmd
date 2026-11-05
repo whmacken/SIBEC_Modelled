@@ -59,7 +59,7 @@ Read in SIBEC data from a .csv table export of a _Trees table from the VTrees da
 
 ```{r SIBEC data import}
 
-predictors <- c("DD5_an", "SNR", "CMD.adj", "PAS_an", "CMI_an", "bFFP", "DD18_an", "Eref_an","rSMR", "VPD_sm")#,"aSMR",
+predictors <- c("DD5_an", "SNR", "CMD.adj", "PAS_an", "CMI_an", "bFFP", "DD18_an", "Eref_an","rSMR", "VPD_sm", "TD")#, #"solar", "heat")#,"aSMR",
 edatopic.sites <- readRDS( "./data/Predict_Edatopic_SI50_data_2026.rds") %>%## cleaned and attributed SIBEC data
  
  # mutate(SNR = as.numeric(factor(rSNR, levels = c("A", "B", "C", "D", "E"), ordered = TRUE))) %>% 
@@ -95,8 +95,8 @@ model_families <- c(
 #  )
 coast.bgc <- c("CWH", "CDF")
 
-edatopic.sites2 <- edatopic.sites |>
-  filter(Zone %in% coast.bgc)
+edatopic.sites2 <- edatopic.sites# |>
+  #filter(Zone %in% coast.bgc)
 #  model_family = "rf"
 # species = "Hw"
 all_species_grids <- list()
@@ -342,35 +342,35 @@ compare_grid_plot <- function(
 ```{r}
 all_species_grids <- readRDS( "./edatopic_preds/species_grids_all_models.rds"
 )
-cmp <- compare_grids(
-  species = "Hw",
-  bgc = "CWHdm3"
-)|>
-  mutate(
-    Diff = RF - GAM)
-
-ggplot(
-  cmp,
-  aes(
-    factor(SNR),
-    factor(rSMR, levels = 8:0),
-    fill = Diff
-  )
-) +
-  geom_tile() +
-  geom_text(
-    aes(label = round(Diff, 1))
-  ) +
-  scale_fill_gradient2(
-    low = "blue",
-    mid = "white",
-    high = "red"
-  ) +
-  theme_bw()
+# cmp <- compare_grids(
+#   species = "Hw",
+#   bgc = "CWHdm3"
+# )|>
+#   mutate(
+#     Diff = RF - GAM)
+# 
+# ggplot(
+#   cmp,
+#   aes(
+#     factor(SNR),
+#     factor(rSMR, levels = 8:0),
+#     fill = Diff
+#   )
+# ) +
+#   geom_tile() +
+#   geom_text(
+#     aes(label = round(Diff, 1))
+#   ) +
+#   scale_fill_gradient2(
+#     low = "blue",
+#     mid = "white",
+#     high = "red"
+#   ) +
+#   theme_bw()
 
 compare_grid_plot(
-  species = "Fd",
-  bgc = "CWHdm1"
+  species = "Pl",
+  bgc = "ICHwk4"
 )
 
 

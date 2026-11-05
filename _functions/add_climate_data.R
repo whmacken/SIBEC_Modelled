@@ -5,7 +5,7 @@
 add_climate_data <- function(
     data,
     vars.choose = grep(
-      "^(CMD_an|CMI_an|bFFP|Eref_an|PAS_an|DD5_an|DD18_an|PPT|VPD)",
+      "^(CMD_an|CMI_an|bFFP|Eref_an|PAS_an|DD5_an|DD18_an|PPT|VPD|TD)",
       list_vars(),
       value = TRUE
     )) {
