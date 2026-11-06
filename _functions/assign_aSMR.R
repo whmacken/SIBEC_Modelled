@@ -1,9 +1,9 @@
 #----------------------------------------------------------
 # 4. Assign aSMR
 #----------------------------------------------------------
-# rules_table = fread("./inputsGit/aSMR_Rules_HalfStep_v11_09Dec2019.csv")
-# data = sibec.anal
-
+#rules_table = fread("./inputsGit/aSMR_Rules_HalfStep_v11_09Dec2019.csv")
+# data2 = data
+ #data=data2
 assign_aSMR <- function(
     data,
     rules_table) {
@@ -28,7 +28,7 @@ assign_aSMR <- function(
     stop("CMD.adj is missing from data.")
   }
   
-  data %>%
+data %>% #select(PlotNumber,rSMR, CMD.adj) |> 
     mutate(
       SMRLevel = case_when(
         rSMR %in% 0:4 ~ 0,
@@ -49,12 +49,11 @@ assign_aSMR <- function(
     ) %>%
     
     group_by(
-      PlotNumber,
-      rSMR
+      id
     ) %>%
     
-    slice_max(
-      coalesce(CMD_range, -Inf),
+    slice_min(
+      coalesce(aSMR, -Inf),
       with_ties = FALSE
     ) %>%
     
@@ -63,7 +62,7 @@ assign_aSMR <- function(
     mutate(
       aSMR = if_else(
         rSMR == 8,
-        0,
+        9,
         aSMR
       ),
       eda2 = paste0(

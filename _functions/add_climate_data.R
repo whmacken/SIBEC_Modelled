@@ -78,7 +78,7 @@ add_climate_data <- function(
         rSMR == 5 ~ CMD / 2,
         rSMR == 6 ~ CMD / 4,
         rSMR == 7 ~ CMD / 8,
-        rSMR == 8 ~ CMD / 32,
+        rSMR == 8 ~ 0,
         TRUE      ~ NA_real_
       ),
 

@@ -1,3 +1,7 @@
+data = sibec.anal
+# add_asmr = TRUE
+# rules_table = rules_table
+
 add_predictors_sibec <- function(
     data,
     add_climate = TRUE,
