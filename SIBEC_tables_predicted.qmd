@@ -62,8 +62,8 @@ Read in SIBEC data from a .csv table export of a _Trees table from the VTrees da
 # predictors <- c("DD5_an", "SNR", "CMD.adj", "PAS_an", "CMI_an", "bFFP", "DD18_an", 
 #                 "Eref_an","VPD_sm", "CMD_an", "heat", "solar","TD", "aSMR")#,,","rSMR",
 
-predictors <- c("DD5_an", "SNR", "CMD.adj", "PAS_an", "CMI_an", "bFFP", "DD18_an", "CMD_an",
-                "Eref_an","VPD_sm","rSMR")#,,", "heat", "solar",,"TD", , "aSMR"
+predictors <- c("DD5_an", "CMD.adj", "PAS_an",  "DD18_an", "solar","VPD_sm","TD")
+    #,,", "heat", , , "aSMR""SNR","CMI_an","bFFP","CMD_an","Eref_an",,"rSMR"
 edatopic.sites <- readRDS( "./data/Predict_Edatopic_SI50_data_2026.rds") %>%## cleaned and attributed SIBEC data
  
  # mutate(SNR = as.numeric(factor(rSNR, levels = c("A", "B", "C", "D", "E"), ordered = TRUE))) %>% 
@@ -256,6 +256,85 @@ saveRDS(
 ```
 
 ```{r}
+
+```
+
+
+
+```{r}
+all_species_grids <- readRDS( "./edatopic_preds/species_grids_all_models.rds"
+)
+
+meta <- all_species_grids$meta
+
+library(dplyr)
+library(purrr)
+library(ggplot2)
+library(tidytext)
+
+plot_dat <- imap_dfr(
+  meta,
+  function(spp_list, species) {
+
+    imap_dfr(
+      spp_list,
+      function(bgc_tbl, bgc) {
+
+        bgc_tbl %>%
+          filter(rSMR == 4) %>%
+          transmute(
+            TreeSpp = species,
+            BGC = bgc,
+            SI50 = as.numeric(`3`)
+          )
+      }
+    )
+  }
+)
+plot_dat <- plot_dat %>%
+  filter(is.finite(SI50)) %>%
+  mutate(
+    BGC_plot = reorder_within(
+      BGC,
+      SI50,
+      TreeSpp
+    )
+  )
+
+tree_dat <- plot_dat |> 
+  filter(TreeSpp == "Sx") |> 
+  filter(    grepl("^CWH|^BAFA", BGC))  
+  #filter(    grepl("^CWH|^MH|^CDF|^CMA", BGC))
+ggplot(
+  tree_dat,
+  aes(
+    x = SI50,
+    y = BGC_plot
+  )
+) +
+  geom_point(
+    size = 2.5,
+    colour = "#2C7FB8"
+  ) +
+  facet_wrap(
+    ~ TreeSpp,
+    scales = "free_y"
+  ) +
+  scale_y_reordered() +
+  labs(
+    x = "Predicted site index (SI50)",
+    y = "BGC",
+    title = "Site index at rSMR 4 and SNR 3"
+  ) +
+  theme_bw() +
+  theme(
+    axis.text.y = element_text(size = 5),
+    panel.grid.minor = element_blank()
+  )
+```
+
+
+```{r}
 compare_grids <- function(
   species,
   bgc,
@@ -341,77 +420,7 @@ compare_grid_plot <- function(
     theme_bw()
 
 }
-```
 
-
-
-```{r}
-all_species_grids <- readRDS( "./edatopic_preds/species_grids_all_models.rds"
-)
-
-meta <- all_species_grids$gam
-
-library(dplyr)
-library(purrr)
-library(ggplot2)
-library(tidytext)
-
-plot_dat <- imap_dfr(
-  meta,
-  function(spp_list, species) {
-
-    imap_dfr(
-      spp_list,
-      function(bgc_tbl, bgc) {
-
-        bgc_tbl %>%
-          filter(rSMR == 4) %>%
-          transmute(
-            TreeSpp = species,
-            BGC = bgc,
-            SI50 = as.numeric(`3`)
-          )
-      }
-    )
-  }
-)
-plot_dat <- plot_dat %>%
-  filter(is.finite(SI50)) %>%
-  mutate(
-    BGC_plot = reorder_within(
-      BGC,
-      SI50,
-      TreeSpp
-    )
-  )
-
-tree_dat <- plot_dat |> filter(TreeSpp == "Fd")
-ggplot(
-  tree_dat,
-  aes(
-    x = SI50,
-    y = BGC_plot
-  )
-) +
-  geom_point(
-    size = 2.5,
-    colour = "#2C7FB8"
-  ) +
-  facet_wrap(
-    ~ TreeSpp,
-    scales = "free_y"
-  ) +
-  scale_y_reordered() +
-  labs(
-    x = "Predicted site index (SI50)",
-    y = "BGC",
-    title = "Site index at rSMR 4 and SNR 3"
-  ) +
-  theme_bw() +
-  theme(
-    axis.text.y = element_text(size = 5),
-    panel.grid.minor = element_blank()
-  )
 # cmp <- compare_grids(
 #   species = "Hw",
 #   bgc = "CWHdm3"
@@ -438,10 +447,10 @@ ggplot(
 #   ) +
 #   theme_bw()
 
-compare_grid_plot(
-  species = "Cw",
-  bgc = "CDFmm"
-)
+# compare_grid_plot(
+#   species = "Cw",
+#   bgc = "CDFmm"
+# )
 
 
 ```
