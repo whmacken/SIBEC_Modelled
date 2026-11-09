@@ -104,14 +104,45 @@ plot_dat <- map_dfr(
   filter(is.finite(SI50))
 ```
 
-Plot examples of SI for species by BGC
 ```{r}
-tree.choose = "Sx" ; bgc.choose = "^IDF|^ICH|^SBS"#"CWH" ## "^SBS|^ICH|^IDF" # "^ESSF|^MH|^BAFA"
+#---------------------------------------
+# Mean climate values by BGC
+#---------------------------------------
+sibec.anal <- readRDS("./data/SIBEC_Analysis_data_2026.rds")
+climate_vars <- c(
+  "CMD.adj",
+  "DD5_an",
+  "CMI_an",
+  "DD18_an",
+  "Eref_an",
+  "PAS_an",
+  "bFFP",
+  "VPD_sm"
+)
+
+bgc_climate <- sibec.anal %>%
+  group_by(BGC) %>%
+  summarise(
+    across(
+      all_of(climate_vars),
+      ~ mean(.x, na.rm = TRUE)
+    ),
+    .groups = "drop"
+  )
+```
+
+
+
+
+Plot examples of SI for species by BGC for all models
+
+```{r}
+tree.choose = "Cw" ; bgc.choose = "^IDF|^ICH|^SBS|^CWH"#"CWH" ## "^SBS|^ICH|^IDF" # "^ESSF|^MH|^BAFA"
 tree_dat <- plot_dat %>%
   filter(    TreeSpp == tree.choose,
     grepl(bgc.choose, BGC)  )
 bgc_order <- tree_dat %>%
-  filter(Model == "META") %>%  arrange(SI50) %>%  pull(BGC)
+  filter(Model == "STACK") %>%  arrange(SI50) %>%  pull(BGC)
 tree_dat <- tree_dat %>%
   mutate(BGC = factor(BGC,levels = bgc_order)) %>%
   arrange(Model, BGC)
@@ -122,7 +153,7 @@ ggplot( tree_dat,
   labs(
     x = "BGC",
     y = "Predicted site index (SI50)",
-    title = paste(tree.choose, " site index at rSMR 4 and SNR 3"),
+    title = paste(tree.choose, " SI50 at rSMR 4 and SNR C"),
     colour = "Model") +
   theme_bw() +
   theme(
@@ -134,16 +165,21 @@ ggplot( tree_dat,
     panel.grid.minor = element_blank())
 
 ```
+compare SI across all models and species for individual BGC zonals.
+We might be able to assess how well models are doing by examining the co-occurence of species in natural plots where shade-intolerant species with similar high SI will co-occur and others will be excluded.
+
+Compare multiple models for species in a single BGC
+See impact of models and maybe help decide on best model choice and model issues.
 
 ```{r}
-bgc.choose <- "SBSwk1"
+bgc.choose <- "CDFmm"
 
 bgc_dat <- plot_dat %>%
   filter(BGC == bgc.choose)
 
 # Order species by META-predicted SI50
 spp_order <- bgc_dat %>%
-  filter(Model == "META") %>%
+  filter(Model == "STACK") %>%
   arrange(SI50) %>%
   pull(TreeSpp)
 
@@ -177,7 +213,7 @@ ggplot(
     y = "Predicted site index (SI50)",
     title = paste(
       bgc.choose,
-      "site index at rSMR 4 and SNR 3"
+      "SI50 at rSMR 4 and SNR C"
     ),
     colour = "Model"
   ) +
@@ -191,6 +227,144 @@ ggplot(
     panel.grid.minor = element_blank()
   )
 ```
+#Single model output for multiple species across multiple BGC organized by chosen species SI50
+Could compare this result against actual species occurrence in BGCs.
+Expect that the dominant shade intolerant species should be fairly close in dominant SI and those with significantly lower SI will not appear in natural stands.
+
+Could then check a change is relationship between species between 1961-1990 and current time period to support species additions now and then future trajectories to see either critical fails or increasing spread of SI
+```{r}
+model.choose <- "STACK"
+bgc.choose <- "^ESSF"#|^ICH|^SBS
+test.spp <- c("Pl", "Sx", "Bl", "Py", "Lw", "At", "Fd", "Pw")
+
+model_dat <- plot_dat %>%
+  filter(
+    Model == model.choose,
+    grepl(bgc.choose, BGC),
+    TreeSpp %in% c(test.spp)
+  )
+
+# Order BGCs by Pl SI50
+bgc_order <- model_dat %>%
+  filter(TreeSpp == "Pl") %>%
+  arrange(SI50) %>%
+  pull(BGC) %>%
+  unique()
+
+model_dat <- model_dat %>%
+  mutate(
+    BGC = factor(BGC, levels = bgc_order)
+  ) %>%
+  arrange(TreeSpp, BGC)
+
+ggplot(
+  model_dat,
+  aes(
+    x = BGC,
+    y = SI50,
+    colour = TreeSpp,
+    group = TreeSpp
+  )
+) +
+  geom_line(
+    linewidth = 0.7,
+    alpha = 0.8
+  ) +
+  geom_point(size = 1.8) +
+  labs(
+    x = "BGC",
+    y = "Predicted site index (SI50)",
+    title = paste(
+      model.choose,
+      "SI50 at rSMR 4 and SNR C organized by Pl SI50"
+    ),
+    colour = "Species"
+  ) +
+  theme_bw() +
+  theme(
+    axis.text.x = element_text(
+      size = 6,
+      angle = 90,
+      vjust = 0.5,
+      hjust = 1
+    ),
+    panel.grid.minor = element_blank()
+  )
+```
+
+Organize single species by climate metric
+Look for single metric relationship to SI50. Possibly find climate surface problems
+```{r}
+tree.choose <- "Sx"
+bgc.choose <- "^IDF|^ICH|^SBS|^BG|^BWBS"
+climate.choose <- "CMD.adj"
+
+tree_dat <- plot_dat %>%
+  filter(
+    TreeSpp == tree.choose,
+    grepl(bgc.choose, BGC)
+  ) %>%
+  left_join(
+    bgc_climate,
+    by = "BGC"
+  )
+bgc_order <- tree_dat %>%
+  distinct(
+    BGC,
+    climate_value = .data[[climate.choose]]
+  ) %>%
+  arrange(climate_value) %>%
+  pull(BGC)
+
+tree_dat <- tree_dat %>%
+  mutate(
+    BGC = factor(
+      BGC,
+      levels = bgc_order
+    )
+  ) %>%
+  arrange(Model, BGC)
+ggplot(
+  tree_dat,
+  aes(
+    x = BGC,
+    y = SI50,
+    colour = Model,
+    group = Model
+  )
+) +
+  geom_line(
+    linewidth = 0.7,
+    alpha = 0.8
+  ) +
+  geom_point(
+    size = 1.8
+  ) +
+  labs(
+    x = paste(
+      "BGC ordered by mean",
+      climate.choose
+    ),
+    y = "Predicted site index (SI50)",
+    title = paste(
+      tree.choose,
+      "SI50 at rSMR 4 and SNR C"
+    ),
+    colour = "Model"
+  ) +
+  theme_bw() +
+  theme(
+    axis.text.x = element_text(
+      size = 6,
+      angle = 90,
+      vjust = 0.5,
+      hjust = 1
+    ),
+    panel.grid.minor = element_blank()
+  )
+
+```
+
 
 SIBEC summaries
 group into Site Series
@@ -231,8 +405,6 @@ group into Site Series
 #   gt::cols_width(TreeSpp ~ px(100), SS_NoSpace ~ px(150))
 #%>% mutate(mean_SI50 = round(mean_SI50, 2), sd_SI50 = round(sd_SI50, 2)) 
 ```
-
-
 
 
 maximum SI50 for each species for climate potential

@@ -117,7 +117,7 @@ TreeSpp <- unlist(
   spp.list,
   use.names = FALSE
 )
-
+#all species in all alpine = cold limit for any tree species
 alpine.dat <- make_boundary_data(
   grid_data = bgc.grid.pts,
   bgc_filter =    grepl("^BAFA|^CMA|^IMA", BGC),
@@ -130,31 +130,31 @@ alpine.dat <- make_boundary_data(
   n_per_bgc = 15,
   template = sibec.anal
 )
+## zero site index for these species in these subzones = coast high elevation heat/drought limits
+c_montane.trees <- c("Ba", "Yc", "Bl")
+c_montane_spp <- TreeSpp[TreeSpp %in% c_montane.trees]
+montane.bgc <- c("CWHdm3", "CDFmm", "CWHds1")
+c_montane.dat <- make_boundary_data(
+  grid_data = bgc.grid.pts,
+  bgc_filter =    BGC %in% montane.bgc,
+  tree_spp = c_montane_spp,
+  bgc_all = bgc.all,
+  #snr = c("A", "C", "E"),
+    #rsmr = c(1, 3, 4, 5, 7),
+  snr = c("C"),
+  rsmr = c(3, 4),
+  n_per_bgc = 5,
+  template = sibec.anal
+)
 
-# woodland.trees <- c("Sx", "Sw", "Se", "Pl", "Bl", "Pa")
-# woodland_spp <- TreeSpp[!TreeSpp %in% woodland.trees]
-# 
-# woodland.dat <- make_boundary_data(
-#   grid_data = bgc.grid.pts,
-#   bgc_filter =    grepl("^ESSF", BGC_LABEL) &    substr(BGC_LABEL, 7, 7) == "w",
-#   tree_spp = woodland_spp,
-#   bgc_all = bgc.all,
-#   #snr = c("A", "C", "E"),
-#     #rsmr = c(1, 3, 4, 5, 7),
-#   snr = c("C"),
-#   rsmr = c(3, 4),
-#   n_per_bgc = 5,
-#   template = sibec.anal
-# )
+## zero site index for any but these species in these subzones
+MH.trees <- c("Hm", "Bl", "Ba", "Yc")
+MH_spp <- TreeSpp[!TreeSpp %in% MH.trees]
 
-
-parkland.trees <- c("Hm", "Bl", "Ba", "Yc")
-parkland_spp <- TreeSpp[!TreeSpp %in% parkland.trees]
-
-parkland.dat <- make_boundary_data(
+MH.dat <- make_boundary_data(
   grid_data = bgc.grid.pts,
   bgc_filter =    grepl("^MH", BGC_LABEL) &    substr(BGC_LABEL, 7, 7) == "p",
-  tree_spp = parkland_spp,
+  tree_spp = MH_spp,
   bgc_all = bgc.all,
   #snr = c("A", "C", "E"),
     #rsmr = c(1, 3, 4, 5, 7),
@@ -196,23 +196,7 @@ IDF.dat <- make_boundary_data(
   template = sibec.anal
 )
 
-# boreal.trees <- c("At", "Ac", "Ep", "Sx", "Pl", "Sw", "Bl")
-# boreal_spp <- TreeSpp[!TreeSpp %in% boreal.trees]
-# 
-# boreal.dat <- make_boundary_data(
-#   grid_data = bgc.grid.pts,
-#   bgc_filter =    grepl("^BWBS|^SWB", BGC_LABEL),
-#   tree_spp = boreal_spp,
-#   bgc_all = bgc.all,
-#   #snr = c("A", "C", "E"),
-#     #rsmr = c(1, 3, 4, 5, 7),
-#   snr = c("C"),
-#   rsmr = c(3, 4),
-#   n_per_bgc = 10,
-#   template = sibec.anal
-# )
-
-sibec.anal <- bind_rows(sibec.anal, alpine.dat,parkland.dat, BG.dat, IDF.dat) #, woodland.dat, boreal.dat
+sibec.anal <- bind_rows(sibec.anal, alpine.dat,parkland.dat, BG.dat, IDF.dat, c_montane.dat, CDF.dat) #, woodland.dat, boreal.dat
 
 xx <- sibec.anal |> filter(TreeSpp == "Fd", rSMR == 4, SI50 == 0.5) |> select(BGC,TreeSpp, rSMR, SNR, SI50)
 yy <- bgc.grid.pts |> filter (grepl("^IDF", BGC_LABEL))
