@@ -112,12 +112,12 @@ sibec.anal <- readRDS("./data/SIBEC_Analysis_data_2026.rds")
 climate_vars <- c(
   "CMD.adj",
   "DD5_an",
-  "CMI_an",
   "DD18_an",
   "Eref_an",
   "PAS_an",
-  "bFFP",
-  "VPD_sm"
+  "VPD_sm",
+  "solar",
+  "TD"
 )
 
 bgc_climate <- sibec.anal %>%
@@ -172,7 +172,7 @@ Compare multiple models for species in a single BGC
 See impact of models and maybe help decide on best model choice and model issues.
 
 ```{r}
-bgc.choose <- "CWHvm1"
+bgc.choose <- "CDFmm"
 
 bgc_dat <- plot_dat %>%
   filter(BGC == bgc.choose)
@@ -235,9 +235,11 @@ Could then check a change is relationship between species between 1961-1990 and 
 ```{r}
 model.choose <- "STACK"
 bgc.choose <- "^CWH"#|^ICH|^SBS
+test.spp <- c("Fd", "Ss", "Ba", "Hw", "Cw", "Hw", "At")
+tree.orderby = "Fd"
 bgc.choose <- "^SBS"#|^ICH|^SBS|^BG|^BWBS"
 test.spp <- c("Sx", "Bl", "Py", "Lw", "At", "Pl","Fd", "Pw")
-#test.spp <- c("Fd", "Ss", "Ba", "Hw", "Cw", "Hw", "At")
+ tree.orderby = "Pl"
 model_dat <- plot_dat %>%
   filter(
     Model == model.choose,
@@ -247,7 +249,7 @@ model_dat <- plot_dat %>%
 
 # Order BGCs by Pl SI50
 bgc_order <- model_dat %>%
-  filter(TreeSpp == "Pl") %>%
+  filter(TreeSpp %in% tree.orderby) %>%
   arrange(SI50) %>%
   pull(BGC) %>%
   unique()
@@ -365,7 +367,10 @@ ggplot(
   )
 
 ```
+Adjust for other edatopic positions
+```{r}
 
+```
 
 SIBEC summaries
 group into Site Series

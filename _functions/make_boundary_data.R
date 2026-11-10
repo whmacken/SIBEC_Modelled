@@ -17,11 +17,11 @@ make_boundary_data <- function(
   boundary_dat <- grid_data %>%
     filter({{ bgc_filter }}) %>%
     select(
-      PlotNumber = id,
+      PlotNumber,
       BGC,
-      Latitude = ycoord,
-      Longitude = xcoord,
-      Elevation = elev
+      Latitude,
+      Longitude,
+      Elevation
     ) %>%
     mutate(
       Zone = stringr::str_extract(BGC, "[A-Z]+"),

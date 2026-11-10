@@ -60,7 +60,25 @@ sibec.anal <- merge(sibec.tree, sibec.env, by = c("PlotNumber")) %>%  dplyr::ren
 
 xx <- sibec.anal %>% count(TreeSpp)
 
-bgc.grid.pts <- fread("D:/OneDrive - Government of BC/CommonTables/BGCv13_3_2km_gridpts.csv")
+bgc.grid.pts <- fread("D:/OneDrive - Government of BC/CommonTables/BGCv13_3_2km_gridpts.csv") %>%
+  distinct(BGC, id, .keep_all = TRUE) %>%   # guarantee unique locations
+  group_by(BGC) %>%
+  slice_sample(n = 10) %>%
+  ungroup() %>%
+  transmute(
+    PlotNumber = as.character(id),
+    BGC,
+    BGC_LABEL,
+    Latitude = ycoord,
+    Longitude = xcoord,
+    Elevation = elev,
+    Zone = str_extract(BGC, "[A-Z]+"),
+    SlopeGradient = 0,
+    Aspect = 0,
+    SI50 = 0.5,
+    purpose = "edaphic_boundary"
+  )
+
 ```
 
 ### Read in other site index data sources
@@ -76,10 +94,11 @@ sibec.anal <- bind_rows(sibec.anal, amat.sibec)
 Add edaphic limits to tree species
 
 ```{r}
+set.seed(123)
 spp.list = unique(sibec.anal$TreeSpp)
 bgc.list = unique(sibec.anal$BGC)
 #synth.dat <- fread("./data/Edaphic_sites_data_2025.csv")
-synth.dat <- bgc.grid.pts %>% slice_sample(n = 1, by="BGC") %>% select(PlotNumber = id, BGC, Latitude = ycoord, Longitude = xcoord, Elevation = elev) %>% mutate(Zone = str_extract(BGC, "[A-Z]+"), SlopeGradient = 0, Aspect = 0, SI50 = 0.5, purpose = "model") # add an id column for later use
+synth.dat <- bgc.grid.pts %>% slice_sample(n = 10, by="BGC") %>% select(PlotNumber, Zone, BGC, Latitude, Longitude, Elevation) %>% mutate(SlopeGradient = 0, Aspect = 0, SI50 = 0.5, purpose = "model") # add an id column for later use
 bgc.all <- unique(synth.dat$BGC)
 ### this is from the grid of points to be predicted to fill SIBEC model
 # keep a single example of each BGC, rSMR, SNR combination
@@ -98,7 +117,7 @@ new_records <- expand.grid(
 )
 #synth.rsmr07 <- synth.dat %>% filter(rSMR %in% c(0, 8))
 synth.rsmr08 <- left_join(synth.dat, new_records,  by = c("BGC")) %>% mutate(SS_NoSpace = paste0(BGC, "/", rSMR, SNR), PlotNumber = as.character(PlotNumber), rSMR = as.numeric(rSMR), purpose = "edaphic_boundary")
-fwrite(synth.rsmr08, "./data/synthetic_data_2025.csv")
+#fwrite(synth.rsmr08, "./data/synthetic_data_2025.csv")
 synth.rsmr08 <- synth.rsmr08 %>%
   select(all_of(names(sibec.anal)))
 
@@ -129,7 +148,7 @@ alpine.dat <- make_boundary_data(
     #rsmr = c(1, 3, 4, 5, 7),
   snr = c("C"),
   rsmr = c(3, 4),
-  n_per_bgc = 15,
+  n_per_bgc = 10,
   template = sibec.anal
 )
 ## zero site index for these species in these subzones = coast high elevation heat/drought limits
@@ -198,7 +217,7 @@ IDF.dat <- make_boundary_data(
   template = sibec.anal
 )
 
-sibec.anal <- bind_rows(sibec.anal, alpine.dat,parkland.dat, BG.dat, IDF.dat, c_montane.dat) #, CDF.dat, woodland.dat, boreal.dat
+sibec.anal <- bind_rows(sibec.anal, alpine.dat, c_montane.dat, MH.dat, BG.dat, IDF.dat) #parkland.dat,, CDF.dat, woodland.dat, boreal.dat
 
 xx <- sibec.anal |> filter(TreeSpp == "Fd", rSMR == 4, SI50 == 0.5) |> select(BGC,TreeSpp, rSMR, SNR, SI50)
 yy <- bgc.grid.pts |> filter (grepl("^IDF", BGC_LABEL))
