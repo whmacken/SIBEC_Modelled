@@ -137,7 +137,7 @@ bgc_climate <- sibec.anal %>%
 Plot examples of SI for species by BGC for all models
 
 ```{r}
-tree.choose = "Cw" ; bgc.choose = "^IDF|^ICH|^SBS|^CWH"#"CWH" ## "^SBS|^ICH|^IDF" # "^ESSF|^MH|^BAFA"
+tree.choose = "Fd" ; bgc.choose = "^CWH|^IDF" #"CWH" ## "^SBS|^ICH|^IDF" # "^ESSF|^MH|^BAFA"^IDF|^ICH|^SBS|
 tree_dat <- plot_dat %>%
   filter(    TreeSpp == tree.choose,
     grepl(bgc.choose, BGC)  )
@@ -172,7 +172,7 @@ Compare multiple models for species in a single BGC
 See impact of models and maybe help decide on best model choice and model issues.
 
 ```{r}
-bgc.choose <- "CDFmm"
+bgc.choose <- "CWHvm1"
 
 bgc_dat <- plot_dat %>%
   filter(BGC == bgc.choose)
@@ -234,9 +234,10 @@ Expect that the dominant shade intolerant species should be fairly close in domi
 Could then check a change is relationship between species between 1961-1990 and current time period to support species additions now and then future trajectories to see either critical fails or increasing spread of SI
 ```{r}
 model.choose <- "STACK"
-bgc.choose <- "^ESSF"#|^ICH|^SBS
-test.spp <- c("Pl", "Sx", "Bl", "Py", "Lw", "At", "Fd", "Pw")
-
+bgc.choose <- "^CWH"#|^ICH|^SBS
+bgc.choose <- "^SBS"#|^ICH|^SBS|^BG|^BWBS"
+test.spp <- c("Sx", "Bl", "Py", "Lw", "At", "Pl","Fd", "Pw")
+#test.spp <- c("Fd", "Ss", "Ba", "Hw", "Cw", "Hw", "At")
 model_dat <- plot_dat %>%
   filter(
     Model == model.choose,
@@ -297,7 +298,7 @@ Look for single metric relationship to SI50. Possibly find climate surface probl
 ```{r}
 tree.choose <- "Sx"
 bgc.choose <- "^IDF|^ICH|^SBS|^BG|^BWBS"
-climate.choose <- "CMD.adj"
+climate.choose <- "VPD_sm"
 
 tree_dat <- plot_dat %>%
   filter(

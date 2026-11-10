@@ -108,7 +108,9 @@ xx <- sibec.anal %>% filter(BGC == "ESSFmcw")
 ## read in suitability table and add SI50=0 across all edaphic positions when a species is out of range
 ```
 
-## Add in alpine sites for SI50=0.5 for cold limits
+## Add in points for locations outside the range of species to capture climate limits
+Add in alpine sites for SI50=0.5 for cold limits
+Add in low coastal BGC, BG, IDF as heat/drought tolerances for species
 
 ```{r}
 source("./_functions/make_boundary_data.R")
@@ -196,7 +198,7 @@ IDF.dat <- make_boundary_data(
   template = sibec.anal
 )
 
-sibec.anal <- bind_rows(sibec.anal, alpine.dat,parkland.dat, BG.dat, IDF.dat, c_montane.dat, CDF.dat) #, woodland.dat, boreal.dat
+sibec.anal <- bind_rows(sibec.anal, alpine.dat,parkland.dat, BG.dat, IDF.dat, c_montane.dat) #, CDF.dat, woodland.dat, boreal.dat
 
 xx <- sibec.anal |> filter(TreeSpp == "Fd", rSMR == 4, SI50 == 0.5) |> select(BGC,TreeSpp, rSMR, SNR, SI50)
 yy <- bgc.grid.pts |> filter (grepl("^IDF", BGC_LABEL))

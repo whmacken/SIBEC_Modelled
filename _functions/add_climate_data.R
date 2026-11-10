@@ -4,11 +4,7 @@
 
 add_climate_data <- function(
     data,
-    vars.choose = grep(
-      "^(CMD_an|CMI_an|bFFP|Eref_an|PAS_an|DD5_an|DD18_an|PPT|VPD|TD)",
-      list_vars(),
-      value = TRUE
-    )) {
+    vars.choose = vars.choose) {
   
   clim_input <-
     data %>%
@@ -82,7 +78,7 @@ add_climate_data <- function(
         TRUE      ~ NA_real_
       ),
 
-      CMD.adj = pmax(CMD.adj, 0)
+      CMD.site = pmax(CMD.adj, 0)
     )
 dat
   #return(dat) 
