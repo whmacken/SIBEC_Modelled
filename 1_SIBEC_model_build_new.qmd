@@ -79,7 +79,7 @@ sibec.anal <- readRDS("./data/SIBEC_Analysis_data_2026.rds") %>%
     CMD.adj = as.numeric(CMD.adj)) |> 
   mutate(TreeSpp = ifelse(TreeSpp == " Ba", "Bac", TreeSpp))
 
-
+xx <- sibec.anal |> filter(BGC == "MSdc1")
 ###For random forests probably need some bounding data otherwise no extrapolation into sites outside the training data
 ###Ensemble models may be better for extrapolation but challenges in getting to prediction 
 

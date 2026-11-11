@@ -58,7 +58,7 @@ sibec.anal <- merge(sibec.tree, sibec.env, by = c("PlotNumber")) %>%  dplyr::ren
   #mutate(TreeSpp = ifelse(Zone %in% c("CDF", "CWH", "MH"), paste0(TreeSpp, "c"), TreeSpp))
 
 
-xx <- sibec.anal %>% count(TreeSpp)
+
 
 bgc.grid.pts <- fread("D:/OneDrive - Government of BC/CommonTables/BGCv13_3_2km_gridpts.csv") %>%
   distinct(BGC, id, .keep_all = TRUE) %>%   # guarantee unique locations
@@ -222,7 +222,9 @@ sibec.anal <- bind_rows(sibec.anal, alpine.dat, c_montane.dat, MH.dat, BG.dat, I
 xx <- sibec.anal |> filter(TreeSpp == "Fd", rSMR == 4, SI50 == 0.5) |> select(BGC,TreeSpp, rSMR, SNR, SI50)
 yy <- bgc.grid.pts |> filter (grepl("^IDF", BGC_LABEL))
 
+xx <- sibec.anal |> count(PlotNumber,TreeSpp)
 
+xx <- sibec.anal |> filter(BGC == "MSdc1")
 ```
 
 
@@ -273,6 +275,8 @@ saveRDS(
   "./data/SIBEC_Analysis_data_2026.rds"
 )
 
+xx <- sibec.anal |> filter(BGC == "MSdc1")
+xx <- sibec.anal2 |> filter(BGC == "MSdc1", TreeSpp == "Ba")
 edatopic.grid2 <- add_predictors_sibec(
   edatopic.grid,
   add_asmr = TRUE,
