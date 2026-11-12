@@ -55,31 +55,37 @@ require(readxl)
 
 compare the sitebec summaries from 2013 and 2024 to see if there are any differences in the data. This will help to understand how the data has changed over time and if there are any trends that can be identified.
 
+####Need to ensure that BGC and site series are updated for all plots ####
+
 ```{r SIBEC and BECdb data import}
 require(DBI) #loads odbc as well
- becdb <- dbConnect(odbc::odbc(), .connection_string = "Driver={Microsoft Access Driver (*.mdb, *.accdb)}; DBQ=D:/OneDrive - Government of BC/BECdb_Working/BECdb_ver13_2024.accdb;")
+ becdb <- dbConnect(odbc::odbc(), .connection_string = "Driver={Microsoft Access Driver (*.mdb, *.accdb)}; DBQ=D:/OneDrive - Government of BC/BECdb_Working/BECdb_ver14_2026_v1.accdb;")
 BGC_all <- dbReadTable(becdb, "tblBGC_UnitsWorkingandArchive") %>% 
-  filter(is.na(VersionRetired)) %>% select(FSRegion,BGC_Label, BGC_NoSpace, BGC_Zone, Corr1BGC_1) %>% 
+  filter(is.na(BGCVersionRetired)) %>% select(FSRegion,BGC_Label, BGC_NoSpace, ZONE, Corr1BGC_1) %>% 
   mutate(BGC_Label = trimws(BGC_Label))
 SS_all <- dbReadTable(becdb, "tblBEC_SiteSeriesWorkingandArchive") %>% 
   filter(Status == "Current", Forest_NonForest %in% c("Forest", "Treed")) %>%
-  select(BGC_NoSpace, SS_NoSpace, SS_Label, SiteSeriesLongName)
-SS_new <- dbReadTable(becdb, "tblBEC_SiteSeries_v13_compiled") %>%
-  filter(Forest_NonForest %in% c("Forest", "Treed")) %>%
-  select(BGC_NoSpace, SS_NoSpace, SS_Label,SiteSeriesLongName)
-SS_all <- bind_rows(SS_all, SS_new) %>% distinct() 
+  select(BGC_NoSpace, SU_NoSpace, SU_Label, SiteSeriesLongName)
+# SS_new <- dbReadTable(becdb, "tblBEC_SiteSeries_v13_compiled") %>%
+#   filter(Forest_NonForest %in% c("Forest", "Treed")) %>%
+#   select(BGC_NoSpace, SU_NoSpace, SU_Label,SiteSeriesLongName)
+# SS_all <- bind_rows(SS_all, SS_new) %>% distinct() 
 dbDisconnect(becdb)
 BGCs_noSS <- anti_join(BGC_all , SS_all)
 
-sibec_master <- dbConnect(odbc::odbc(), .connection_string = "Driver={Microsoft Access Driver (*.mdb, *.accdb)}; DBQ=D:/OneDrive - Government of BC/SIBEC_files/SIBEC_2025_VPRO_cleaned.accdb;")
-sibec  <- dbReadTable(sibec_master, "SIBEC_All_2025_ENV")
-sibec.tree  <- dbReadTable(sibec_master, "SIBEC_All_2025_Trees")
+sibec_master <- dbConnect(odbc::odbc(), .connection_string = "Driver={Microsoft Access Driver (*.mdb, *.accdb)}; DBQ=D:/OneDrive - Government of BC/SIBEC_Modelled/SIBEC_files/SIBEC_2026_VPRO_cleaned.accdb;")
+sibec.env  <- dbReadTable(sibec_master, "SIBEC_All_2026_ENV")
+sibec.tree  <- dbReadTable(sibec_master, "SIBEC_All_2026_Trees")
 sibec.info  <- dbReadTable(sibec_master, "newSS_from_edatopic")
 dbDisconnect(sibec_master)
 sibec.info <- sibec.info %>% select(PlotNumber, BGC_spatial, NewSS)
-sibec.tree <- sibec.tree %>% select(PlotNumber, TreeSpp, SI50)
 
-sibec25 <- left_join(sibec.tree, sibec.info)
+sibec2 <- left_join(sibec.tree, sibec.info)
+sibec.tree <- sibec.tree %>% select(PlotNumber, TreeSpp, SI50)
+sibec.all <- left_join(sibec.env, sibec2)
+edatopic.sum <- sibec.all |> count(BGC_spatial, TreeSpp, MoistureRegime, NutrientRegime)
+
+
 BGC.update <- BGC_all %>% select(BGC_NoSpace, Corr1BGC_1) %>%
   filter(!is.na(Corr1BGC_1)) 
 sibec13 <- readxl::read_xlsx("./inputs/sibec2013approx_final.xlsx") %>%
@@ -97,7 +103,7 @@ sibec13$TreeSpp <- sibec13$TreeSpp %>% recode(
 ```
 Summarize SI by site series
 ```{r}
-sibec25.2 <- sibec25 #%>%
+sibec25.2 <- sibec2 #%>%
   #mutate(BECSiteUnit = str_remove(BECSiteUnit, "[a-z]+$"))%>% #Removes phase designation
   #mutate(BECSiteUnit = str_remove(NewSS, "\\$.*")) %>% #removes seral designation
   #mutate(BGC_NoSpace = str_extract(BECSiteUnit, "^[^/]+")) #extracts BGC from BECSiteUnit
