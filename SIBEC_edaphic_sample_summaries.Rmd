@@ -1,0 +1,225 @@
+---
+title: "Find_best_sampled_BGCs _each_species"
+author: "William H MacKenzie"
+date: "2026-11-11"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+#options(tinytex.verbose = TRUE)
+require(tidyverse)
+#require (ggplot2)
+require (assertr)
+require(data.table)
+require(DBI)
+library(purrr)
+require(tictoc)
+require(tidymodels)
+require(vip)
+require(randomForest)
+library(knitr)
+library(stringr)
+require(readxl)
+```
+
+## R Markdown
+
+Bring in data
+
+```{r cars}
+require(DBI) #loads odbc as well
+ becdb <- dbConnect(odbc::odbc(), .connection_string = "Driver={Microsoft Access Driver (*.mdb, *.accdb)}; DBQ=D:/OneDrive - Government of BC/BECdb_Working/BECdb_ver14_2026_v1.accdb;")
+BGC_all <- dbReadTable(becdb, "tblBGC_UnitsWorkingandArchive") %>% 
+  filter(is.na(BGCVersionRetired)) %>% select(FSRegion,BGC_Label, BGC_NoSpace, ZONE, Corr1BGC_1) %>% 
+  mutate(BGC_Label = trimws(BGC_Label))
+SS_all <- dbReadTable(becdb, "tblBEC_SiteSeriesWorkingandArchive") %>% 
+  filter(Status == "Current", Forest_NonForest %in% c("Forest", "Treed")) %>%
+  select(BGC_NoSpace, SU_NoSpace, SU_Label, SiteSeriesLongName)
+# SS_new <- dbReadTable(becdb, "tblBEC_SiteSeries_v13_compiled") %>%
+#   filter(Forest_NonForest %in% c("Forest", "Treed")) %>%
+#   select(BGC_NoSpace, SU_NoSpace, SU_Label,SiteSeriesLongName)
+# SS_all <- bind_rows(SS_all, SS_new) %>% distinct() 
+dbDisconnect(becdb)
+BGCs_noSS <- anti_join(BGC_all , SS_all)
+
+predictors <- c("DD5_an", "CMD.adj", "PAS_an",  "DD18_an", "solar","VPD_sm","TD")
+    #,,", "heat", , , "aSMR""SNR","CMI_an","bFFP","CMD_an","Eref_an",,"rSMR"
+
+sibec.anal <- readRDS("./data/SIBEC_Analysis_data_2026.rds") |> filter(SI50 >0.5) |> 
+  mutate(SNR = as.integer(3)) %>% 
+  mutate(rSMR = as.integer(4)) |> 
+  mutate(
+    DD5 = as.numeric(DD5_an),
+    CMD.adj = as.numeric(CMD.adj)) %>% select(PlotNumber, Zone, BGC, TreeSpp, purpose, SI50, predictors) 
+```
+
+
+```{r}
+library(stacks)
+all.models <- readRDS("./models/final_species_models.rds")
+coast.bgc <- c("CWH", "CDF")
+
+new_dat <- sibec.anal# |> filter(Zone %in% coast.bgc)
+
+pred_dat <- new_dat %>%
+  mutate(SI50_4C_pred = NA_real_)
+
+for (species in names(all.models$stack)) {
+
+  # Rows belonging to this species
+  idx <- pred_dat$TreeSpp == species & !is.na(pred_dat$TreeSpp)
+
+  # Only predict if there are matching records
+  if (any(idx)) {
+
+    pred_dat$SI50_4C_pred[idx] <- predict(
+      all.models$stack[[species]],
+      new_data = pred_dat[idx, ]
+    )$.pred
+
+  }
+}
+preds <- pred_dat |> select(PlotNumber, TreeSpp, SI50_4C_pred)
+sibec.anal <- readRDS("./data/SIBEC_Analysis_data_2026.rds") |> filter(SI50 >0.5) |> left_join(preds)
+sibec.anal2 <- sibec.anal |> select(Zone,BGC, PlotNumber, TreeSpp, aSMR, rSMR, rSNR, SI50, SI50_4C_pred) |> mutate(SI50_diff = round(SI50 - SI50_4C_pred,2)) |> distinct()
+```
+
+Predict 4C edatope SI50 for all records including those with azonal
+review for oddities in 4C predictions 
+```{r}
+test.sibec <- sibec.anal2 |>
+  filter(rSMR == 4, rSNR == "C") |>
+  group_by(TreeSpp) |>
+  mutate(
+    n = sum(!is.na(SI50_diff)),
+    TreeSpp_n = (paste0(TreeSpp, "\n", n))
+  ) |>
+  ungroup()
+
+ggplot(
+  test.sibec,
+  aes(
+    x = reorder(TreeSpp_n, SI50_diff, FUN = median, na.rm = TRUE),
+    y = SI50_diff
+  )
+) +
+  geom_boxplot() +
+  geom_hline(
+    yintercept = 0,
+    linetype = "dashed",
+    colour = "red"
+  ) +
+  labs(
+    x = "Tree species",
+    y = "SI50 difference"
+  ) +
+  theme_bw()
+
+```
+
+
+Summarize by BGC, TreeSpp, rSMR, rSNR
+
+```{r}
+sibec.anal2 <- sibec.anal |> select(Zone,BGC, PlotNumber, TreeSpp, aSMR, rSMR, SNR = rSNR, SI50, SI50_4C_pred) |> mutate(SI50_diff = round(SI50 - SI50_4C_pred,2)) |> distinct()
+
+sibec.summary <- sibec.anal2 |>
+  group_by(BGC, TreeSpp, rSMR, SNR) |>
+  summarise(
+    n = n(),
+    across(
+      c(SI50, SI50_4C_pred, SI50_diff),
+      list(
+        mean = ~ mean(.x, na.rm = TRUE),
+        sd   = ~ sd(.x, na.rm = TRUE),
+        min  = ~ min(.x, na.rm = TRUE),
+        max  = ~ max(.x, na.rm = TRUE)
+      ),
+      .names = "{.col}_{.fn}"
+    ),
+    .groups = "drop"
+  ) |>
+  mutate(
+    across(
+      where(is.numeric),
+      ~ round(.x, 2)
+    )
+  ) |>
+  arrange(BGC, TreeSpp, rSMR, SNR)
+
+xx <- sibec.summary |> filter(n>2, TreeSpp == "Pl")
+```
+
+```{r pressure, echo=FALSE}
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+
+# Cell-level counts
+edatopic.sum <- sibec.anal2 %>% filter(SI50 >0.5) |> 
+  count(
+    BGC,
+    TreeSpp,
+    rSMR,
+    SNR,
+    name = "n"
+  )
+
+bgc_coverage <- edatopic.sum %>%
+  group_by(TreeSpp, BGC) %>%
+  summarise(
+    n_cells = n(),              # occupied edatopic cells
+    n_records = sum(n),         # total observations
+    mean_per_cell = mean(n),
+    min_per_cell = min(n),
+    .groups = "drop"
+  )
+
+best_bgc <- bgc_coverage %>%
+  group_by(TreeSpp) %>%
+  arrange(
+    desc(n_cells),
+    desc(n_records)
+  ) %>%
+  slice_head(n = 1) %>%
+  ungroup()
+
+best_bgc
+
+edatopic.sum %>%
+  filter(
+    TreeSpp == "Sx",
+    BGC == "SBSmc2"
+  ) %>%
+  ggplot(
+    aes(
+      x = SNR,
+      y = factor(
+        rSMR,
+        levels = 8:0
+      ),
+      fill = n
+    )
+  ) +
+  geom_tile() +
+  geom_text(aes(label = n)) +
+  scale_fill_viridis_c() +
+  labs(
+    x = "rSNR",
+    y = "rSMR",
+    fill = "n"
+  ) +
+  theme_bw()
+
+```
+```{r}
+source("./_functions/bgc_edatopic_si50.R")
+bgc_edatopic_si50(
+    data  = sibec.anal2,
+    species = "Sx",
+    bgc = "SBSmc2",
+    min_cell_n = 4,
+    plot = TRUE
+)
+```
