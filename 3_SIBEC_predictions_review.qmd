@@ -56,8 +56,9 @@ library(forcats)
 ##Import Edatopic Predictions generated in SIBEC_tables_predicted script
 
 ```{r}
-all_species_grids <- readRDS( "./edatopic_preds/species_grids_all_models.rds"
-)
+all_species_grids <- readRDS( "./edatopic_preds/species_grids_all_models.rds")
+bayesian_grid <- readRDS("./models/species_grids_bayesian.rds")
+all_species_grids$bayes <- bayesian_grid
 library(dplyr)
 library(purrr)
 library(ggplot2)
@@ -69,8 +70,11 @@ model_names <- c(
   "svm",
   "gam",
   "stack",
-  "meta"
+  "meta",
+  "bayes"
 )
+
+model_names <- names(all_species_grids)
 
 # Extract rSMR = 4 / SNR = 3 from every model
 plot_dat <- map_dfr(
@@ -137,12 +141,12 @@ bgc_climate <- sibec.anal %>%
 Plot examples of SI for species by BGC for all models
 
 ```{r}
-tree.choose = "Fd" ; bgc.choose = "^CWH|^IDF" #"CWH" ## "^SBS|^ICH|^IDF" # "^ESSF|^MH|^BAFA"^IDF|^ICH|^SBS|
+tree.choose = "Fd" ; bgc.choose = "^SBS|^ICH|^IDF" #"^CWH|^IDF" #"CWH" ## "^SBS|^ICH|^IDF" # "^ESSF|^MH|^BAFA"^IDF|^ICH|^SBS|
 tree_dat <- plot_dat %>%
   filter(    TreeSpp == tree.choose,
     grepl(bgc.choose, BGC)  )
 bgc_order <- tree_dat %>%
-  filter(Model == "STACK") %>%  arrange(SI50) %>%  pull(BGC)
+  filter(Model == "RF") %>%  arrange(SI50) %>%  pull(BGC)
 tree_dat <- tree_dat %>%
   mutate(BGC = factor(BGC,levels = bgc_order)) %>%
   arrange(Model, BGC)
@@ -179,7 +183,7 @@ bgc_dat <- plot_dat %>%
 
 # Order species by META-predicted SI50
 spp_order <- bgc_dat %>%
-  filter(Model == "STACK") %>%
+  filter(Model == "RF") %>%
   arrange(SI50) %>%
   pull(TreeSpp)
 
@@ -233,16 +237,16 @@ Expect that the dominant shade intolerant species should be fairly close in domi
 
 Could then check a change is relationship between species between 1961-1990 and current time period to support species additions now and then future trajectories to see either critical fails or increasing spread of SI
 ```{r}
-model.choose <- "STACK"
-bgc.choose <- "^CWH"#|^ICH|^SBS
-test.spp <- c("Fd", "Ss", "Ba", "Hw", "Cw", "Hw", "At")
-tree.orderby = "Fd"
+model.choose <- c("BAYES","RF")
+# bgc.choose <- "^CWH|^ICH|^SBS"
+# test.spp <- c("Fd", "Ss", "Ba", "Hw", "Cw", "Hw", "At")
+# tree.orderby = "Fd"
 bgc.choose <- "^SBS"#|^ICH|^SBS|^BG|^BWBS"
 test.spp <- c("Sx", "Bl", "Py", "Lw", "At", "Pl","Fd", "Pw")
- tree.orderby = "Pl"
+tree.orderby = "Pl"
 model_dat <- plot_dat %>%
   filter(
-    Model == model.choose,
+    Model %in% model.choose,
     grepl(bgc.choose, BGC),
     TreeSpp %in% c(test.spp)
   )
@@ -283,6 +287,7 @@ ggplot(
     ),
     colour = "Species"
   ) +
+  facet_wrap(~Model)+
   theme_bw() +
   theme(
     axis.text.x = element_text(
@@ -298,9 +303,9 @@ ggplot(
 Organize single species by climate metric
 Look for single metric relationship to SI50. Possibly find climate surface problems
 ```{r}
-tree.choose <- "Sx"
+tree.choose <- "Fd"
 bgc.choose <- "^IDF|^ICH|^SBS|^BG|^BWBS"
-climate.choose <- "VPD_sm"
+climate.choose <- "DD5_an"
 
 tree_dat <- plot_dat %>%
   filter(
@@ -367,6 +372,33 @@ ggplot(
   )
 
 ```
+Compare different models to SIBEC 2013 tables
+
+```{r}
+sibec_table <- fread("inputsGit/SIBEC_2013_Summary.csv")
+##only use zonal
+sibec_table <- sibec_table[grep("/01$|/101$", SS_NoSpace),] |> na.omit()
+sibec_table[,BGC := gsub("/.*", "", SS_NoSpace)]
+sibec2 <- sibec_table[,.(SI50 = mean(MeanPlotSiteIndex)), by = .(BGC, TreeSpp)]
+
+model_table <- copy(plot_dat) |> as.data.table()
+model_table[sibec2, SIBEC := i.SI50, on = c("BGC", "TreeSpp")]
+
+temp <- model_table[TreeSpp %in% c("Fd","Pl","Sx","Cw"),] |> na.omit()
+
+summary(lm(SI50 ~ SIBEC, data = temp[Model == "RF"]))
+
+ggplot(temp, aes(x = SIBEC, y = SI50)) +
+  geom_point() +
+  geom_abline() +
+  facet_wrap(~Model + TreeSpp)
+
+ggsave("SIBEC_Model_Comparison.png", width = 8, height = 9)
+```
+
+
+
+
 Adjust for other edatopic positions
 ```{r}
 
