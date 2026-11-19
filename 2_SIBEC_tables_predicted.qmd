@@ -86,88 +86,88 @@ This script can be run a single time for any version of the models and then comm
 ## Predict with Bayesian model
 
 ```{r}
-# source("../SIBayes/site_index_piecewise.R")
-# run_dir <- "../SIBayes/si_fits_piecewise/run_8a144ce174d9/"
-# 
-# fit_bayes <- list(
-#   fit      = readRDS(file.path(run_dir, "fit.rds")),
-#   prepared = readRDS(file.path(run_dir, "prepared.rds"))
-# )
-# 
-# setDT(edatopic.sites)
-# 
-# val_dat <- edatopic.sites[rSMR %in% 3:5 & rSNR %in% c("B","C","D","E"),.(id, BGC, rSMR, rSNR, DD5_an, CMD_an, VPD_sm)]
-# val_dat[,id := NULL]
-# val_dat <- unique(val_dat)
-# setnames(val_dat, c("BGC", "moisture", "nutrient", "DD5", "CMD", "VPD"))
-# val_dat <- unique(val_dat)
-# 
-# preds_bayes <- predict_si_validation_piecewise(fit_bayes, val_dat)
-# 
-# library(data.table)
-# 
-# make_bayes_grids <- function(predictions) {
-#   dt <- copy(as.data.table(predictions))
-# 
-#   required <- c("BGC", "species", "moisture", "nutrient", "SI_median")
-#   if (!all(required %in% names(dt))) {
-#     stop("Missing columns: ",
-#          paste(setdiff(required, names(dt)), collapse = ", "))
-#   }
-# 
-#   # Map nutrient A–E to 1–5; also accept existing numeric codes.
-#   nutrient_codes <- toupper(trimws(as.character(dt$nutrient)))
-#   dt[, SNR := match(nutrient_codes, LETTERS[1:5])]
-#   numeric_codes <- nutrient_codes %in% as.character(1:5)
-#   dt[numeric_codes, SNR := as.integer(nutrient_codes[numeric_codes])]
-# 
-#   dt[, rSMR := as.numeric(as.character(moisture))]
-# 
-#   if (anyNA(dt$SNR) || anyNA(dt$rSMR) ||
-#       any(!dt$rSMR %in% 0:8)) {
-#     stop("Expected nutrient A–E (or 1–5) and integer moisture 0–8.")
-#   }
-#   if (anyNA(dt$species) || anyNA(dt$BGC)) {
-#     stop("Species and BGC must not be missing.")
-#   }
-# 
-#   # Average median predictions within each edatopic cell.
-#   cell_means <- dt[
-#     , .(SI = if (all(is.na(SI_median))) NA_real_
-#              else mean(SI_median, na.rm = TRUE)),
-#     by = .(species, BGC, rSMR, SNR)
-#   ]
-# 
-#   make_grid <- function(cells) {
-#     # Explicitly include all 45 edatopic positions.
-#     full <- merge(
-#       CJ(rSMR = 0:8, SNR = 1:5),
-#       cells[, .(rSMR, SNR, SI)],
-#       by = c("rSMR", "SNR"),
-#       all.x = TRUE
-#     )
-# 
-#     grid <- dcast(full, rSMR ~ SNR, value.var = "SI")
-#     setcolorder(grid, c("rSMR", as.character(1:5)))
-#     setorder(grid, rSMR)
-#     grid[]
-#   }
-# 
-#   species_grids <- lapply(
-#     split(cell_means, by = "species", keep.by = FALSE),
-#     function(species_data) {
-#       lapply(
-#         split(species_data, by = "BGC", keep.by = FALSE),
-#         make_grid
-#       )
-#     }
-#   )
-# 
-#   list(bayes = species_grids)
-# }
-# 
-# bayesian_grids <- make_bayes_grids(preds_bayes)
-# saveRDS(bayesian_grids$bayes, "models/species_grids_bayesian.rds")
+source("../SIBayes/site_index_piecewise.R")
+run_dir <- "../SIBayes/si_fits_piecewise/run_3e2816037ba5/"
+
+fit_bayes <- list(
+  fit      = readRDS(file.path(run_dir, "fit.rds")),
+  prepared = readRDS(file.path(run_dir, "prepared.rds"))
+)
+
+setDT(edatopic.sites)
+
+val_dat <- edatopic.sites[rSMR %in% 3:5 & rSNR %in% c("B","C","D","E"),.(id, BGC, rSMR, rSNR, DD5_an, CMD_an, VPD_sm)]
+val_dat[,id := NULL]
+val_dat <- unique(val_dat)
+setnames(val_dat, c("BGC", "moisture", "nutrient", "DD5", "CMD", "VPD"))
+val_dat <- unique(val_dat)
+
+preds_bayes <- predict_si_validation_piecewise(fit_bayes, val_dat)
+
+library(data.table)
+
+make_bayes_grids <- function(predictions) {
+  dt <- copy(as.data.table(predictions))
+
+  required <- c("BGC", "species", "moisture", "nutrient", "SI_median")
+  if (!all(required %in% names(dt))) {
+    stop("Missing columns: ",
+         paste(setdiff(required, names(dt)), collapse = ", "))
+  }
+
+  # Map nutrient A–E to 1–5; also accept existing numeric codes.
+  nutrient_codes <- toupper(trimws(as.character(dt$nutrient)))
+  dt[, SNR := match(nutrient_codes, LETTERS[1:5])]
+  numeric_codes <- nutrient_codes %in% as.character(1:5)
+  dt[numeric_codes, SNR := as.integer(nutrient_codes[numeric_codes])]
+
+  dt[, rSMR := as.numeric(as.character(moisture))]
+
+  if (anyNA(dt$SNR) || anyNA(dt$rSMR) ||
+      any(!dt$rSMR %in% 0:8)) {
+    stop("Expected nutrient A–E (or 1–5) and integer moisture 0–8.")
+  }
+  if (anyNA(dt$species) || anyNA(dt$BGC)) {
+    stop("Species and BGC must not be missing.")
+  }
+
+  # Average median predictions within each edatopic cell.
+  cell_means <- dt[
+    , .(SI = if (all(is.na(SI_median))) NA_real_
+             else mean(SI_median, na.rm = TRUE)),
+    by = .(species, BGC, rSMR, SNR)
+  ]
+
+  make_grid <- function(cells) {
+    # Explicitly include all 45 edatopic positions.
+    full <- merge(
+      CJ(rSMR = 0:8, SNR = 1:5),
+      cells[, .(rSMR, SNR, SI)],
+      by = c("rSMR", "SNR"),
+      all.x = TRUE
+    )
+
+    grid <- dcast(full, rSMR ~ SNR, value.var = "SI")
+    setcolorder(grid, c("rSMR", as.character(1:5)))
+    setorder(grid, rSMR)
+    grid[]
+  }
+
+  species_grids <- lapply(
+    split(cell_means, by = "species", keep.by = FALSE),
+    function(species_data) {
+      lapply(
+        split(species_data, by = "BGC", keep.by = FALSE),
+        make_grid
+      )
+    }
+  )
+
+  list(bayes = species_grids)
+}
+
+bayesian_grids <- make_bayes_grids(preds_bayes)
+saveRDS(bayesian_grids$bayes, "models/species_grids_bayesian.rds")
 
 
 ```
