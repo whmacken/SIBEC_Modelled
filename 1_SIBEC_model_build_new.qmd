@@ -1,0 +1,1086 @@
+---
+title: "Build predictive SIBEC model"
+author: "William H MacKenzie"
+date: "21/05/2025"
+format:
+  typst:
+    toc: false
+    toc-depth: 1
+    toc-title: Contents
+    section-numbering: 1.1.1
+    columns: 1
+editor: source
+execute:
+  echo: false
+  error: false
+  warning: false
+  message: false
+  fig.width: 6
+  fig.height: 4
+  fig.align: 'center'
+  fig.cap: true
+  fig.pos: H
+  out.width: '100%'
+  dev: pdf
+  fig.ext: pdf
+  cache: false
+  fig.retina: 2
+  dpi: 600
+  fig.asp: 1.5
+  fig.path: "./figures/"
+---
+
+# Build SIBEC prediction model
+Uses SIBEC data plus other bounding data sets to create a machine learning regression model of site index and applies to build a predicted SIBEC and a more expansive model for use in climate change forecasting.
+May also want a survival model to predict mortality and combine the two models into a predicted 'volume' model for use in the portfolio analysis.
+This is probably required with the AMAT and other observation that often a few surviving individuals will have surprising high site index values.
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+#options(tinytex.verbose = TRUE)
+require(tidyverse)
+#require (ggplot2)
+require (assertr)
+require(data.table)
+#require(climr)
+require(DBI)
+library(purrr)
+require(tictoc)
+require(tidymodels)
+require(vip)
+require(randomForest)
+library(knitr)
+require(pdp)
+require(openxlsx)
+library(tidymodels)
+#library(glmnet)  # Lasso regression
+library(xgboost)  # GAM boosting
+library(ranger)  # Random forest
+library(kernlab)  # SVM
+library(stacks)  # Model stacking
+library(gt)
+require(mgcv)  # Generalized additive models)
+```
+
+##Import SIBEC data
+
+Read in SIBEC data saved from SIBEC_data_prep.Rmd scripts
+
+```{r SIBEC data import}
+sibec.anal <- readRDS("./data/SIBEC_Analysis_data_2026.rds") %>% 
+ # mutate(SNR = as.numeric(factor(rSNR, levels = c("A", "B", "C", "D", "E"), ordered = TRUE))) %>% 
+  mutate(SNR = as.integer(
+      factor(SNR, levels = c("A", "B", "C", "D", "E")))) %>% 
+  #mutate(rSMR = as.integer(
+   #   factor(rSMR, levels = c("0", "1", "2", "3", "4", "5","6","7","8")))) %>%
+  mutate(
+    DD5 = as.numeric(DD5_an),
+    CMD.adj = as.numeric(CMD.adj)) |> 
+  mutate(TreeSpp = ifelse(TreeSpp == " Ba", "Bac", TreeSpp))
+
+xx <- sibec.anal |> filter(BGC == "MSdc1")
+###For random forests probably need some bounding data otherwise no extrapolation into sites outside the training data
+###Ensemble models may be better for extrapolation but challenges in getting to prediction 
+
+sibec.coast <- sibec.anal %>% filter(Zone %in% c("CWH", "MH", "CDF"))#, "CMA"))
+sibec.interior <- sibec.anal %>% filter(!Zone %in% c("CWH", "MH", "CDF", "CMA")) 
+## select set for running models
+sibec.tst = sibec.anal
+# Step 1: Calculate non-zero SI50 count per TreeSpp
+
+sibec.tst <- sibec.tst %>% filter(rSMR %in% c(3,4), SNR %in% c("2","3"), SlopeGradient <35)
+
+valid_species <- sibec.tst %>%
+  filter(SI50 > 0.5) %>%
+  count(TreeSpp) %>%
+  filter(n >= 20) %>%
+  pull(TreeSpp)
+
+# Step 2: Filter main dataset to retain only those species
+sibec.tst <- sibec.tst %>%
+  filter(TreeSpp %in% valid_species)
+
+xx <- sibec.tst |> filter(TreeSpp == "Fdc", SI50>0.5)
+```
+
+## Generate boxplots of site index by site series with phases
+This produces a facetted boxplot graph for each species in a BGC showing site index by site series
+
+```{r boxplot species by rSMRxSNR}
+
+SI_spp <- sibec.tst %>% arrange(BGC)#%>% filter(grepl("^SBSmc2", BECSiteUnit))
+SI_spp <- drop_na (SI_spp)
+# Create separate plots for each BGC
+unique_bgcs <- sort(unique(SI_spp$BGC))
+unique_bgcs = "SBSmc2"
+for (bgc in unique_bgcs) {
+  # Filter data for the current BGC
+  SI_spp_subset <- SI_spp %>% filter(BGC == bgc)
+  
+  # Create the plot
+SI_plot <- ggplot(SI_spp_subset, aes(x=eda1, y=SI50, fill=rSNR)) +
+  geom_boxplot() +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(size = 8,angle = 90, hjust = 1, vjust = 0.5),
+    panel.grid.major.x = element_blank(),
+    panel.grid.major.y = element_line(color = "gray80")
+  ) +
+  ggtitle(paste0("Site Index by edatopic position ", bgc)) +
+  facet_wrap(~TreeSpp)+
+  coord_cartesian(ylim = c(0, 50))
+
+  plot(SI_plot)
+  # Save the plot
+  #ggsave(filename = paste0("./outputs/SiteIndex_", bgc, "_rSMR.png"), plot = SI_plot, width = 8, height = 6)
+}
+
+```
+## flag outliers
+## probably cannot use since its a linear model based approach and the expected distribution is not
+```{r flag and remove outliers}
+sibec.lm <- sibec.tst 
+#aspect.class = as.factor(aspect.class))
+predictors <- c("DD5_an", "CMD.adj", "PAS_an",  "DD18_an", "solar","VPD_sm","TD")
+    #,,", "heat", , , "aSMR""SNR","CMI_an","bFFP","CMD_an","Eref_an",,"rSMR"
+sibec.lm <- sibec.lm %>% select(PlotNumber, BGC, TreeSpp, purpose, SI50, predictors) 
+#filter species with less than 50 observations
+sibec.anal2 <- sibec.lm %>%
+  mutate(
+    purpose = recode(
+      purpose,
+      sibec = "data",
+      amat = "data",
+      edaphic_boundary = "boundary"
+    )
+  ) 
+n_training <- sibec.anal2 %>% filter(SI50>=0) %>%  group_by(TreeSpp, purpose) %>% summarise(count = n()) %>% arrange(desc(count))
+n_data <- n_training |> filter(purpose == "data")
+
+sibec.anal2 <- sibec.anal2 |>  filter(
+  complete.cases(
+    CMD.adj, DD5_an,  DD18_an, VPD_sm,TD,#, heat,  aSMR,Eref_an, bFFP, rSMR,  SNR,CMI_an,
+     solar,PAS_an, SI50
+  )) |> 
+   filter(TreeSpp %in% n_data$TreeSpp[n_data$count > 20])# |> 
+ # filter(TreeSpp != "Sx")
+     
+# |> rename(species = TreeSpp)
+ ##reduce sibec.lm to remove outliers
+
+
+```
+
+```{r}
+species_metrics <- list()
+species_predictions <- list()
+
+final_models <- list(
+  rf = list(),
+    xgb = list(),
+  svm = list(),
+  gam = list(),
+  stack = list(),
+  meta = list()
+)
+
+species_list <- unique(sibec.anal2$TreeSpp)
+
+#species_list = "Fd"
+# species = "Ss"
+for(species in species_list){
+
+  cat(species, "\n")
+
+  spp_data <- sibec.anal2 %>%
+    filter(TreeSpp == species)
+
+  if(nrow(spp_data) < 20)
+    next
+    
+  spp_data <- spp_data %>%
+  mutate(row_id = row_number())
+set.seed(123)
+  split_obj <- group_initial_split(
+    spp_data,
+    group = BGC,
+    prop = 0.8
+  )
+
+  train_tbl <- training(split_obj)
+  assess_tbl <- testing(split_obj)
+set.seed(124)
+  cv_folds <- vfold_cv(
+    train_tbl,
+    v = 5,
+    strata = purpose
+  )
+    model_recipe <- recipe(
+    reformulate(
+      predictors,
+      response = "SI50"
+    ),
+    data = train_tbl
+  ) 
+svm_recipe <- recipe(
+  reformulate(
+    predictors,
+    response = "SI50"
+  ),
+  data = train_tbl
+) %>%
+  step_normalize(all_numeric_predictors())
+    
+      rf_wf <- workflow() %>%
+    add_recipe(model_recipe) %>%
+    add_model(
+      rand_forest(
+        trees = 500
+      ) %>%
+        set_engine(
+          "ranger",
+          importance = "permutation"
+        ) %>%
+        set_mode("regression")
+    )
+
+  xgb_wf <- workflow() %>%
+    add_recipe(model_recipe) %>%
+    add_model(
+      boost_tree(
+        trees = 200
+      ) %>%
+        set_engine("xgboost") %>%
+        set_mode("regression")
+    )
+
+  svm_wf <- workflow() %>%
+    add_recipe(svm_recipe) %>%
+    add_model(
+      svm_rbf() %>%
+        set_engine("kernlab") %>%
+        set_mode("regression")
+    )
+    ctrl <- control_resamples(
+    save_pred = TRUE,
+    save_workflow = TRUE
+  )
+    ##CV models
+    
+      rf_res <- fit_resamples(
+    rf_wf,
+    cv_folds,
+    metrics = metric_set(rmse, mae, rsq),
+    control = ctrl
+  )
+
+  xgb_res <- fit_resamples(
+    xgb_wf,
+    cv_folds,
+    metrics = metric_set(rmse, mae, rsq),
+    control = ctrl
+  )
+
+  svm_res <- fit_resamples(
+    svm_wf,
+    cv_folds,
+    metrics = metric_set(rmse, mae, rsq),
+    control = ctrl
+  )
+  
+# For meta model
+  
+  row_lookup <- train_tbl %>%
+  mutate(.row = row_number()) %>%
+  select(
+    .row,
+    row_id,
+    SI50
+  )
+  rf_oof <- collect_predictions(rf_res) %>%
+  select(
+    .row,
+    rf = .pred
+  ) %>%
+  left_join(
+    row_lookup,
+    by = ".row"
+  )
+
+xgb_oof <- collect_predictions(xgb_res) %>%
+  select(
+    .row,
+    xgb = .pred
+  ) %>%
+  left_join(
+    row_lookup,
+    by = ".row"
+  )
+
+svm_oof <- collect_predictions(svm_res) %>%
+  select(
+    .row,
+    svm = .pred
+  ) %>%
+  left_join(
+    row_lookup,
+    by = ".row"
+  )
+
+###build the gam
+gam_formula <- SI50 ~
+  s(CMD.adj, k = 8) +
+  s(DD5_an, k = 8) +
+  s(VPD_sm, k = 8) +
+  s(PAS_an, k = 8) +
+  s(solar, k = 8)+
+  s(DD18_an, k = 8)+
+  s(TD, k = 8)+
+  #s(heat, k = 8) +
+  #s(aSMR, k = 5)+
+  ti(
+  TD,
+  DD5_an,
+    k = c(5, 5))
+  #) +
+  # ti(
+  #   heat,
+  #   DD5_an,
+  #   k = c(5, 5)
+  # ) +
+  # te(
+  #   rSMR,
+  #   SNR,
+  #   bs = c("cr", "cr"),
+  #   k = c(5, 3)
+  #)
+
+gam_oof <- purrr::map_dfr(
+  seq_len(nrow(cv_folds)),
+  function(i){
+
+    split_i <- cv_folds$splits[[i]]
+
+    analysis_dat <- rsample::analysis(split_i)
+    assess_dat   <- rsample::assessment(split_i)
+
+    gam_fold <- mgcv::gam(
+ formula = gam_formula,
+      data = analysis_dat,
+      method = "REML",
+      select = TRUE
+    )
+
+tibble(
+      row_id = assess_dat$row_id,
+      gam = as.numeric(
+        predict(
+          gam_fold,
+          newdata = assess_dat,
+          type = "response"
+        )
+)
+)
+
+  }
+)
+
+  ## Build Stack fit
+    stack_fit <- stacks() %>%
+    add_candidates(xgb_res) %>%
+    add_candidates(rf_res) %>%
+    add_candidates(svm_res) %>%
+    blend_predictions() %>%
+    fit_members()
+ ##### Fit models
+     
+## rf fit
+     rf_fit <- fit(
+    rf_wf,
+    train_tbl
+  ) 
+
+xgb_fit <- fit(
+  xgb_wf,
+  train_tbl
+)
+
+svm_fit <- fit(
+  svm_wf,
+  train_tbl
+)
+##GAM fit
+    gam_fit <- mgcv::gam(
+formula = gam_formula,
+    data = train_tbl,
+    method = "REML",
+    select = TRUE
+  )
+## assess predictions
+rf_pred <- predict(
+  rf_fit,
+  assess_tbl
+)$.pred
+
+xgb_pred <- predict(
+  xgb_fit,
+  assess_tbl
+)$.pred
+
+svm_pred <- predict(
+  svm_fit,
+  assess_tbl
+)$.pred
+
+gam_pred <- predict(
+  gam_fit,
+  newdata = assess_tbl
+)
+
+stack_pred <- predict(
+  stack_fit,
+  new_data = assess_tbl
+)$.pred
+ 
+
+### build meta model
+
+meta_train <- train_tbl %>%
+  select(
+    row_id,
+    SI50
+  ) %>%
+  left_join(
+    rf_oof %>%
+      select(row_id, rf),
+    by = "row_id"
+  ) %>%
+  left_join(
+    xgb_oof %>%
+      select(row_id, xgb),
+    by = "row_id"
+  ) %>%
+  left_join(
+    svm_oof %>%
+      select(row_id, svm),
+    by = "row_id"
+  ) %>%
+  left_join(
+    gam_oof,
+    by = "row_id"
+  )
+
+meta_train <- meta_train %>%
+  arrange(row_id) %>%
+  filter(
+    if_all(
+      c(SI50, rf, xgb, svm, gam),
+      is.finite
+    )
+  )
+
+meta_fit <- lm(
+  SI50 ~ rf + xgb + svm + gam,
+  data = meta_train
+)
+summary(meta_fit)
+meta_assess <- tibble(
+  rf = rf_pred,
+  xgb = xgb_pred,
+  svm = svm_pred,
+  gam = gam_pred
+)
+meta_pred <- predict(
+  meta_fit,
+  newdata = meta_assess
+)
+
+ meta_fit2 <- glmnet::cv.glmnet(
+  x = as.matrix(
+    meta_train[, c(
+      "rf",
+      "svm",
+      "xgb",
+      "gam"
+    )]
+  ),
+  y = meta_train$SI50
+)
+
+meta_pred2 <- predict(
+  meta_fit2,
+  newx = as.matrix(
+    meta_assess[, c(
+      "rf",
+      "svm",
+      "xgb",
+      "gam"
+    )]
+  ),
+  s = "lambda.min"
+) |>
+  as.numeric()
+
+
+ 
+  ### supply model metrics
+  metric_df <- tibble(  
+  
+    TreeSpp = species,
+
+  Model = c(
+    "RF",
+    "XGB",
+    "SVM",
+    "GAM",
+    "STACK",
+    "META_LM",
+    "META_GLMNET"
+  ),
+
+  R2 = c(
+    rsq_vec(assess_tbl$SI50, rf_pred),
+    rsq_vec(assess_tbl$SI50, xgb_pred),
+    rsq_vec(assess_tbl$SI50, svm_pred),
+    rsq_vec(assess_tbl$SI50, gam_pred),
+    rsq_vec(assess_tbl$SI50, stack_pred),
+    rsq_vec(assess_tbl$SI50, meta_pred),
+    rsq_vec(assess_tbl$SI50, meta_pred2)
+  ),
+
+  RMSE = c(
+    rmse_vec(assess_tbl$SI50, rf_pred),
+    rmse_vec(assess_tbl$SI50, xgb_pred),
+    rmse_vec(assess_tbl$SI50, svm_pred),
+    rmse_vec(assess_tbl$SI50, gam_pred),
+    rmse_vec(assess_tbl$SI50, stack_pred),
+    rmse_vec(assess_tbl$SI50, meta_pred),
+    rmse_vec(assess_tbl$SI50, meta_pred2)
+  ),
+
+  MAE = c(
+    mae_vec(assess_tbl$SI50, rf_pred),
+    mae_vec(assess_tbl$SI50, xgb_pred),
+    mae_vec(assess_tbl$SI50, svm_pred),
+    mae_vec(assess_tbl$SI50, gam_pred),
+    mae_vec(assess_tbl$SI50, stack_pred),
+    mae_vec(assess_tbl$SI50, meta_pred),
+    mae_vec(assess_tbl$SI50, meta_pred2)
+  ),
+     n = nrow(assess_tbl)
+
+)
+
+  species_metrics[[species]] <- metric_df
+  
+  print(metric_df)
+
+cat("\nMETA_LM coefficients:\n")
+
+print(
+  stats::coef(meta_fit)
+)
+
+cat("\nMETA_GLMNET coefficients:\n")
+
+print(
+  coef(
+    meta_fit2,
+    s = "lambda.min"
+  )
+)
+
+  # ============================================================
+# Build final models using all species data
+# ============================================================
+
+# Create folds across the complete species dataset.
+# These folds are used to generate OOF predictions for the
+# final meta-model and to construct the final stack.
+full_folds <- vfold_cv(
+  spp_data,
+  v = 5,
+  strata = purpose
+)
+
+full_ctrl <- control_resamples(
+  save_pred = TRUE,
+  save_workflow = TRUE
+)
+
+# ------------------------------------------------------------
+# Generate full-data OOF predictions for RF, XGB, and SVM
+# ------------------------------------------------------------
+
+rf_full_res <- fit_resamples(
+  rf_wf,
+  resamples = full_folds,
+  metrics = metric_set(rmse, mae, rsq),
+  control = full_ctrl
+)
+
+xgb_full_res <- fit_resamples(
+  xgb_wf,
+  resamples = full_folds,
+  metrics = metric_set(rmse, mae, rsq),
+  control = full_ctrl
+)
+
+svm_full_res <- fit_resamples(
+  svm_wf,
+  resamples = full_folds,
+  metrics = metric_set(rmse, mae, rsq),
+  control = full_ctrl
+)
+
+# Lookup connecting .row from collect_predictions()
+# to the permanent row_id and response.
+full_row_lookup <- spp_data %>%
+  mutate(.row = row_number()) %>%
+  select(
+    .row,
+    row_id,
+    SI50
+  )
+
+rf_full_oof <- collect_predictions(rf_full_res) %>%
+  select(
+    .row,
+    rf = .pred
+  ) %>%
+  left_join(
+    full_row_lookup,
+    by = ".row"
+  ) %>%
+  select(
+    row_id,
+    SI50,
+    rf
+  )
+
+xgb_full_oof <- collect_predictions(xgb_full_res) %>%
+  select(
+    .row,
+    xgb = .pred
+  ) %>%
+  left_join(
+    full_row_lookup,
+    by = ".row"
+  ) %>%
+  select(
+    row_id,
+    xgb
+  )
+
+svm_full_oof <- collect_predictions(svm_full_res) %>%
+  select(
+    .row,
+    svm = .pred
+  ) %>%
+  left_join(
+    full_row_lookup,
+    by = ".row"
+  ) %>%
+  select(
+    row_id,
+    svm
+  )
+
+# ------------------------------------------------------------
+# Generate full-data OOF predictions for GAM
+# ------------------------------------------------------------
+
+gam_full_oof <- purrr::map_dfr(
+  seq_len(nrow(full_folds)),
+  function(i) {
+
+    split_i <- full_folds$splits[[i]]
+
+    analysis_dat <- rsample::analysis(split_i)
+    assess_dat <- rsample::assessment(split_i)
+
+    gam_fold <- mgcv::gam(
+      formula = gam_formula,
+      data = analysis_dat,
+      method = "REML",
+      select = TRUE,
+      na.action = na.exclude
+    )
+
+    tibble(
+      row_id = assess_dat$row_id,
+      gam = as.numeric(
+        predict(
+          gam_fold,
+          newdata = assess_dat,
+          type = "response"
+        )
+      )
+    )
+  }
+)
+
+# ------------------------------------------------------------
+# Construct final OOF training table for the meta-model
+# ------------------------------------------------------------
+
+meta_oof <- rf_full_oof %>%
+  left_join(
+    xgb_full_oof,
+    by = "row_id"
+  ) %>%
+  left_join(
+    svm_full_oof,
+    by = "row_id"
+  ) %>%
+  left_join(
+    gam_full_oof,
+    by = "row_id"
+  ) %>%
+  arrange(row_id) %>%
+  filter(
+    if_all(
+      c(SI50, rf, xgb, svm, gam),
+      is.finite
+    )
+  )
+
+# Defensive checks
+if (nrow(meta_oof) == 0) {
+  stop(
+    "No complete OOF predictions were available for species: ",
+    species
+  )
+}
+
+if (anyDuplicated(meta_oof$row_id) > 0) {
+  stop(
+    "Duplicate row_id values occurred in final OOF predictions for: ",
+    species
+  )
+}
+
+# Keep the column order fixed.
+meta_predictors <- c(
+  "rf",
+  "xgb",
+  "svm",
+  "gam"
+)
+
+meta_x <- as.matrix(
+  meta_oof[, meta_predictors]
+)
+
+meta_y <- meta_oof$SI50
+
+# ------------------------------------------------------------
+# Fit final meta learner using OOF predictions only
+# ------------------------------------------------------------
+
+set.seed(123)
+
+meta_glmnet_final <- glmnet::cv.glmnet(
+  x = meta_x,
+  y = meta_y,
+  family = "gaussian",
+  standardize = TRUE
+)
+
+# ------------------------------------------------------------
+# Fit each base model once using all species observations
+# ------------------------------------------------------------
+
+rf_final <- fit(
+  rf_wf,
+  data = spp_data
+)
+
+xgb_final <- fit(
+  xgb_wf,
+  data = spp_data
+)
+
+svm_final <- fit(
+  svm_wf,
+  data = spp_data
+)
+
+gam_final <- mgcv::gam(
+  formula = gam_formula,
+  data = spp_data,
+  method = "REML",
+  select = TRUE,
+  na.action = na.exclude
+)
+
+# ------------------------------------------------------------
+# Build final stacks model using full-data OOF results
+# ------------------------------------------------------------
+
+stack_final <- stacks() %>%
+  add_candidates(xgb_full_res) %>%
+  add_candidates(rf_full_res) %>%
+  add_candidates(svm_full_res) %>%
+  blend_predictions() %>%
+  fit_members()
+
+# ------------------------------------------------------------
+# Save final models
+# ------------------------------------------------------------
+
+final_models$rf[[species]] <- rf_final
+final_models$xgb[[species]] <- xgb_final
+final_models$svm[[species]] <- svm_final
+final_models$gam[[species]] <- gam_final
+final_models$stack[[species]] <- stack_final
+
+final_models$meta[[species]] <- list(
+  rf = rf_final,
+  xgb = xgb_final,
+  svm = svm_final,
+  gam = gam_final,
+  meta = meta_glmnet_final,
+  predictor_order = meta_predictors
+)
+
+
+}
+dir.create(
+  "./models",
+  recursive = TRUE,
+  showWarnings = FALSE
+)
+
+saveRDS(
+  final_models,
+  "./models/final_species_models.rds"
+)
+```
+
+
+```{r}
+final_metrics <-
+  bind_rows(species_metrics)
+
+all_predictions <-
+  bind_rows(species_predictions)
+
+best_models <-
+  final_metrics %>%
+  group_by(TreeSpp) %>%
+  slice_max(
+    R2,
+    n = 1,
+    with_ties = FALSE
+  )
+gt::gt(best_models)
+
+final_metrics %>%
+  select(TreeSpp, Model, R2) %>%
+  tidyr::pivot_wider(
+    names_from = Model,
+    values_from = R2
+  )
+
+final_metrics %>%
+  group_by(Model) %>%
+  summarise(
+    Mean_R2 = mean(R2),
+    Mean_RMSE = mean(RMSE),
+    Mean_MAE = mean(MAE)
+  )
+
+ggplot(
+  final_metrics,
+  aes(
+    y = TreeSpp,
+    x = R2,
+    fill = Model
+  )
+) +
+  geom_col(
+    position = position_dodge()
+  ) +
+  theme_bw()
+
+ggplot(
+  final_metrics,
+  aes(
+    Model,
+    TreeSpp,
+    fill = R2
+  )
+) +
+  geom_tile() +
+  geom_text(
+    aes(label = round(R2, 2)),
+    color = "white"
+  ) +
+  scale_fill_viridis_c() +
+  theme_bw()
+```
+check variables importance to model
+
+```{r}
+rf_importance <- purrr::map_dfr(
+  names(final_models$rf),
+  function(species){
+
+    mod <- final_models$rf[[species]]
+
+    imp <- mod %>%
+      extract_fit_parsnip() %>%
+      pluck("fit") %>%
+      ranger::importance()
+
+    tibble(
+      TreeSpp = species,
+      Variable = names(imp),
+      Importance = as.numeric(imp)
+    )
+
+  }
+)
+
+rf_importance %>%
+  group_by(TreeSpp) %>%
+  slice_max(
+    Importance,
+    n = 10
+  ) %>%
+  arrange(TreeSpp, desc(Importance))
+ggplot(
+  rf_importance,
+  aes(
+    Importance,
+    reorder(Variable, Importance)
+  )
+) +
+  geom_col() +
+  facet_wrap(~TreeSpp, scales = "free") +
+  theme_bw()
+
+
+```
+
+```{r}
+gam_importance <- purrr::map_dfr(
+  names(final_models$gam),
+  function(species){
+
+    s_tab <- summary(
+      final_models$gam[[species]]
+    )$s.table
+
+    tibble(
+      TreeSpp = species,
+      Variable = rownames(s_tab),
+      edf = s_tab[, "edf"],
+      F = s_tab[, "F"],
+      p = s_tab[, "p-value"]
+    )
+
+  }
+)
+gam_importance %>%
+  arrange(
+    TreeSpp,
+    desc(F)
+  )
+
+ggplot(
+  gam_importance,
+  aes(
+    x = Variable,
+    y = TreeSpp,
+    fill = log10(F + 1)
+  )
+) +
+  geom_tile() +
+  scale_fill_viridis_c(
+    name = "log10(F)"
+  ) +
+  theme_bw() +
+  theme(
+    axis.text.x = element_text(
+      angle = 45,
+      hjust = 1
+    )
+  )
+```
+
+
+```{r single partial dependence plots}
+# species = "Ba"
+# predictor_var <- "aSMR"
+# model <- models_rf[[species]]
+# sibec.spp <- sibec.lm %>% filter(TreeSpp == species)
+#   pdp_plot <- pdp::partial(
+#     object = rf_fit,
+#     pred.var = predictor_var,
+#     plot = TRUE,
+#     plot.engine = "ggplot2",
+#     train = sibec.spp
+#   )+
+#     labs(title = paste("Partial Dependence Plot for", species, "on", predictor_var)) +
+#     theme_minimal()
+# 
+#     # Print the plot
+#     print(pdp_plot)
+
+```
+
+```{r partial dependence plots}
+# library(pdp)
+# library(ggplot2)
+# species_list = c("Fd")
+# # Define species list
+# species_list <- names(all_models)
+# 
+# # Loop through each species
+# for (species in species_list) {
+#   
+#   # Get the model for the species
+#   model <- all_models[[species]]
+#   
+#   # Extract top 5 predictors based on importance
+#   rf_fit <- extract_fit_parsnip(model)$fit
+# 
+#   importance_data <- as.data.frame(rf_fit$variable.importance) %>%
+#   tibble::rownames_to_column("Variable") %>%
+#   rename(Importance = 2) %>%
+#   arrange(desc(Importance))
+#   top_predictors <- importance_data %>% 
+#   slice_max(order_by = Importance, n = 5) %>% 
+#   pull(Variable)
+#   
+#   # Filter training data for the species
+#   sibec.spp <- sibec.lm %>% filter(TreeSpp == species)
+#   predictor_var <- c("DD5")#, "aSMR", "rSMR", "SNR", "CMD.adj", "PAS", "CMI", "bFFP", "DD18", "Eref") #, "Latitude"
+#   # Loop through top 5 predictors for the current species
+#   for (predictor_var in top_predictors) {
+#      # Display status message
+#     message(paste("Running PDP for Species:", species, "Predictor:", predictor_var))
+#     flush.console()
+#     # Ensure predictor is numeric
+#     sibec.spp <- sibec.spp %>% mutate(across(all_of(predictor_var), as.numeric))
+#      # Generate partial dependence plot
+#   pdp_plot <- pdp::partial(
+#     object = rf_fit,
+#     pred.var = predictor_var,
+#     plot = TRUE,
+#     plot.engine = "ggplot2",
+#     train = sibec.spp
+#   )+
+#     labs(title = paste("Partial Dependence Plot for", species, "on", predictor_var)) +
+#     theme_minimal()
+# 
+#     # Print the plot
+#     print(pdp_plot)
+#   }
+# }
+```
+
+

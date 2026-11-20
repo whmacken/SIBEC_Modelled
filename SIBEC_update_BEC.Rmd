@@ -1,0 +1,178 @@
+---
+title: "Update SiteSeries by edatopic space"
+author: "William H MacKenzie"
+date: "05/06/2025"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+Mostly for the coast guide update old site series to new site series based on crosswalk of units plus join by edatopic position
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+options(tinytex.verbose = TRUE)
+require(tidyverse)
+require (ggplot2)
+require(data.table)
+require(DBI)
+library(purrr)
+require(SIndexR)
+require(sf)
+require(openxlsx)
+require(tictoc)
+```
+
+## Read in data and information tables
+
+
+```{r Vtrees data import}
+becdb <- dbConnect(odbc::odbc(), .connection_string = "Driver={Microsoft Access Driver (*.mdb, *.accdb)}; DBQ=D:/OneDrive - Government of BC/BECdb_Working/BECdb_ver13_2024.accdb;")
+  edatopic <- dbReadTable(becdb, "Edatopic_v13_3")# %>% mutate(SiteSeriesLongName = str_replace_all(SiteSeriesLongName, " - ", " \u2013 "))
+regions <- dbReadTable(becdb, "tblBGC_UnitsWorkingandArchive") %>% filter(is.na(VersionRetired)) %>% select(FSRegion, BGC_NoSpace)
+  dbDisconnect(becdb)
+  #filter(!str_detect(SS_NoSpace, "/[A-Z]"))
+edatopic <- edatopic %>% 
+  mutate(MoistureRegime = as.character(substr(Edatopic, 2, 2)),
+         NutrientRegime = as.character(substr(Edatopic, 1, 1))) %>% 
+  filter(is.na(Ignore)) %>% 
+  filter(!str_detect(SS_NoSpace, "/G|/B|/E|/H|/R|/F|Wf|Wm|120")) 
+
+coast.becxwalk <- fread("./inputs/LMH77_SS_crosswalk.csv") %>% filter(is.na(Ignore)| Ignore == "")
+sibec_master <- dbConnect(odbc::odbc(), .connection_string = "Driver={Microsoft Access Driver (*.mdb, *.accdb)}; DBQ=D:/OneDrive - Government of BC/SIBEC_files/SIBEC_2025_VPRO_cleaned.accdb;")
+sibec  <- dbReadTable(sibec_master, "SIBEC_All_2025_ENV")
+sibec.tree  <- dbReadTable(sibec_master, "SIBEC_All_2025_Trees")
+sibec.info  <- dbReadTable(sibec_master, "SIBEC_All_2025_TreePlot")
+#sibec.orig <- dbReadTable(sibec_master, "tblMensuration")
+#plot.naming <- dbReadTable(sibec_master, "tblPlotNUmbers")
+#SI_raw  <- dbReadTable(sibec_master, "SIBEC_Analysis_Data")
+dbDisconnect(sibec_master)
+sibec.env <- sibec %>% select(PlotNumber, MoistureRegime, NutrientRegime, Latitude, Longitude, Elevation) %>% mutate(MoistureRegime = substr(MoistureRegime, 1, 1), NutrientRegime = substr(NutrientRegime, 1, 1) )
+sibec.class <- sibec.info %>% select(PlotNumber, BECSiteUnit) %>% mutate(Zone = gsub("[^A-Z]", "", BECSiteUnit)) %>% left_join(sibec.env, by = "PlotNumber") %>% 
+  mutate(BECSiteUnit = str_remove(BECSiteUnit, "[A-Za-z]+$")) %>% 
+  mutate(BECSiteUnit = str_remove(BECSiteUnit, "\\$.*$")) %>% #%>% filter(Zone %in% c("CWH", "MH", "CDF")) 
+  mutate(BECSiteUnit = str_remove(BECSiteUnit, "\\.[0-9]+$"))
+
+#update to new classification based on edatopic
+```
+spatial overlay to BGCv13
+```{r create check for interior}
+library(dplyr)
+library(stringr)
+plot_locations <- sibec.env %>%  filter(!is.na(Longitude)) %>% dplyr::select(PlotNumber, Longitude, Latitude)
+bgcs <- st_read("D:/OneDrive - Government of BC/CommonTables/BGC_maps/BGCv13_3_dissolved.gpkg", crs = 3005)
+plot_coords <- st_as_sf(plot_locations, coords = c("Longitude", "Latitude"), crs = 4326)
+plot_coords <- st_transform(plot_coords, 3005) 
+st_crs(plot_coords) <- 3005
+tic()
+plot_coords <- st_join(plot_coords, bgcs)# %>% filter(is.na(BGC))
+toc()
+new.bgc <- plot_coords %>% st_drop_geometry() %>%  select(PlotNumber, BGC) %>% as.data.frame %>% rename(BGC.spatial = BGC)
+sibec.class2 <- left_join(sibec.class, new.bgc) %>% mutate(OldBGC = str_extract(BECSiteUnit, "^[^/]+")) %>% filter(!is.na(BGC.spatial))
+```
+
+
+```{r create check for interior}
+coastal.bgc <- c("CWH", "MH", "CDF", "IDFww")
+# Apply filter using string detection
+sibec.interior <- sibec.class2 %>%
+  filter(!str_detect(BGC.spatial, str_c("^", coastal.bgc, collapse = "|")))
+
+sibec.interior <- left_join(sibec.interior, edatopic, by = c("BGC.spatial" = "BGC", "MoistureRegime" = "MoistureRegime", "NutrientRegime" = "NutrientRegime")) %>% filter(!is.na(MoistureRegime)) %>% select(-Ignore) %>% distinct 
+sibec.interior <- sibec.interior %>% mutate(class.status = ifelse(BECSiteUnit == SS_NoSpace, "agree", NA))
+list.good <- sibec.interior %>% filter(class.status == "agree") %>% pull(PlotNumber)
+sibec.interior <- sibec.interior %>%
+  filter(!(PlotNumber %in% list.good & is.na(class.status)))
+sibec.interior <- sibec.interior %>% group_by (PlotNumber) %>% mutate(n.possible.ss = n()) %>% mutate(class.status = ifelse(n.possible.ss > 1, "multi.edaphic.matches", class.status)) %>% ungroup()
+sibec.interior <- sibec.interior %>% mutate(class.status = ifelse(BGC.spatial != OldBGC, "BGC_differs", class.status))
+
+sibec.interior <- sibec.interior %>% mutate(class.status = ifelse(is.na(Edatopic), "no.ss.for.edatope", class.status))
+sibec.interior <- sibec.interior %>% mutate(class.status = ifelse(is.na(class.status), "edatopic.mismatch", class.status))
+sibec.interior <- left_join(sibec.interior, regions, by=c("BGC.spatial" = "BGC_NoSpace")) %>% data.frame
+
+
+sibec.to.check <- sibec.interior%>% filter(class.status != "agree") 
+# Loop through FSRegion and create one worksheet per region
+# Create workbook
+sibec.wbk <- createWorkbook()
+regions_list <- unique(sibec.to.check$FSRegion)
+
+for (region in regions_list) {
+  region_data <- sibec.to.check %>% filter(FSRegion == region)
+  # Clean and truncate sheet name
+  sheet_name <- str_replace_all(region, "[\\*/\\?\\:\\[\\]]", "_")     # Replace forbidden characters
+  sheet_name <- str_sub(sheet_name, 1, 31)   
+  addWorksheet(sibec.wbk, sheet_name)
+  writeData(sibec.wbk, sheet = sheet_name, x = region_data)
+}
+
+# Save to file
+saveWorkbook(sibec.wbk, "./outputs/SIBEC_SiteSeries_check.xlsx", overwrite = TRUE)
+```
+
+Coastal update and check
+```{r}
+##for coastal upgrade
+coastal.bgc <- c("CWH", "MH", "CDF", "IDFww")
+sibec.coast <- sibec.class2 %>%
+  filter(str_detect(BGC.spatial, str_c("^", coastal.bgc, collapse = "|")))
+#sibec.coast <- sibec.class2 %>% filter(Zone %in% c("CWH", "MH", "CDF") | BGC.spatial == "IDFww") %>% mutate(class.status = NA)
+sibec.coast  <- left_join(sibec.coast, coast.becxwalk, by = c("BGC.spatial" = "NewBGC", "BECSiteUnit" = "OldSS"))%>%
+  rename("OldBGC" = "OldBGC.x") %>% select(-Ignore, -OldBGC.y)
+sibec.coast <- left_join(sibec.coast, edatopic, by = c("BGC.spatial" = "BGC", "MoistureRegime" = "MoistureRegime", "NutrientRegime" = "NutrientRegime")) %>% filter(!is.na(MoistureRegime)) %>% select(-Ignore) %>% distinct %>% mutate(class.status = NA)
+#bgcxwalk <- coast.becxwalk %>% select(NewBGC, OldBGC) %>% distinct
+
+sibec.coast <- sibec.coast %>% mutate(class.status = ifelse(NewSS == SS_NoSpace, "agree", class.status))
+sibec.coast <- sibec.coast %>% mutate(class.status = ifelse(BECSiteUnit == SS_NoSpace, "agree", class.status))
+list.good <- sibec.coast %>% filter(class.status == "agree") %>% pull(PlotNumber)
+sibec.coast <- sibec.coast %>%
+  filter(!(PlotNumber %in% list.good & (is.na(class.status))))
+# check for correct BGC translation
+coast.bgcxwalk <- coast.becxwalk %>% select(NewBGC, OldBGC) %>% distinct
+#sibec.bgc.matching <- sibec.coast %>% mutate(bgc.matching = ifelse(BGC.spatial == coast.bgcxwalk$OldBGC, "matches", "dnm"))
+# Step 1: Join the data table to the lookup on OldBGC
+library(dplyr)
+
+sibec.coast.goodbgc <- sibec.coast %>%
+  left_join(coast.bgcxwalk, by = "OldBGC") %>%
+  mutate(
+    BGC_match = case_when(
+      OldBGC == BGC.spatial ~ "good_bgc",          # exact match
+      BGC.spatial == NewBGC ~ "matched_bgc",       # lookup match
+      TRUE ~ NA_character_                         # unmatched case
+    )
+  ) %>%
+  group_by(PlotNumber) %>%
+  filter(any(BGC_match %in% c("good_bgc", "matched_bgc"))) %>%  # keep only if at least one match
+  filter(BGC_match %in% c("good_bgc", "matched_bgc")) %>%
+  ungroup()%>% group_by (PlotNumber) %>% mutate(n.possible.ss = n()) %>% mutate(class.status = ifelse(n.possible.ss > 1 & is.na(class.status), "multi.edaphic.matches", class.status)) %>% ungroup() %>% mutate(class.status = ifelse(is.na(class.status), "edatopic.mismatch", class.status))
+
+# Identify unmatched plots
+sibec.coast.unmatchedbgc <- sibec.coast %>%
+  filter(!PlotNumber %in% sibec.coast.goodbgc$PlotNumber) %>% mutate(class.status = "unmatched.bgc", NewBGC = NA, BGCMatch = "unmatched.bgc") %>% group_by (PlotNumber) %>% mutate(n.possible.ss = n()) %>% mutate(class.status = ifelse(n.possible.ss > 1, "unmatched.bgc and multi.edaphic", class.status)) %>% ungroup()
+
+sibec.coast2 <- bind_rows(sibec.coast.goodbgc, sibec.coast.unmatchedbgc)
+
+sibec.to.check <- sibec.coast2 %>% #filter(class.status != "agree") %>% 
+  select(PlotNumber, OldBGC, BGC.spatial,  OldSS = BECSiteUnit, XwalkedSS = NewSS, edatopicSS = SS_NoSpace, MoistureRegime, NutrientRegime, Latitude, Longitude, Elevation, class.status, n.possible.ss) 
+
+# Create workbook
+sibec.wbk <- createWorkbook()
+  sheet_name <- "LMH77_Issues"    # Replace forbidden characters
+  addWorksheet(sibec.wbk, sheet_name)
+  writeData(sibec.wbk, sheet = sheet_name, x = sibec.to.check)
+
+saveWorkbook(sibec.wbk, "./outputs/LMH77_SIBEC_SiteSeries_check.xlsx", overwrite = TRUE)
+
+```
+export edatopic Site Series to SIBEC database
+```{r}
+sibec.edatopic <- bind_rows(sibec.interior, sibec.coast2) %>% select(PlotNumber, BECSiteUnit, OldBGC, BGC.spatial, SS_NoSpace, class.status) %>% mutate(NewSS = ifelse(is.na(SS_NoSpace), BECSiteUnit, SS_NoSpace)) %>% rename(class_status = class.status, BGC_spatial = BGC.spatial) 
+sibec_master <- dbConnect(odbc::odbc(), .connection_string = "Driver={Microsoft Access Driver (*.mdb, *.accdb)}; DBQ=D:/OneDrive - Government of BC/SIBEC_files/SIBEC_2025_VPRO_cleaned.accdb;")
+dbWriteTable(sibec_master, "newSS_from_edatopic", sibec.edatopic, overwrite = TRUE, batch_rows = 1) # write the sitetools SI50 to the SIBEC database
+#SI_raw  <- dbReadTable(sibec_master, "SIBEC_Analysis_Data")
+dbDisconnect(sibec_master)
+
+```
+
