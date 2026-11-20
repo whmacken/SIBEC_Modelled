@@ -1,0 +1,557 @@
+---
+title: "Bayesian site index: model overview"
+subtitle: "Piecewise DD5, summer VPD and CMD"
+date: "2026-11-18"
+author: "Kiri Daust"
+output:
+  html_document:
+    toc: true
+    toc_depth: 2
+    toc_float: true
+    self_contained: true
+    theme: readable
+    code_folding: hide
+params:
+  project_dir: "C:/Users/kirid/Desktop/FFEC/SIBayes"
+  run: "run_3e2816037ba5"
+  n_draws: 1000
+  DD5: 2000
+  VPD: 0.6
+  CMD: 200
+  moisture: 4
+  nutrient: "C"
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo=FALSE, message=FALSE, warning=TRUE,
+                     fig.width=10, fig.height=8, dpi=130)
+library(cmdstanr)
+library(ggplot2)
+library(data.table)
+source(file.path(params$project_dir, "site_index_piecewise.R"))
+run_dir <- file.path(params$project_dir, "si_fits_piecewise", params$run)
+prepared <- readRDS(file.path(run_dir, "prepared.rds"))
+fit <- readRDS(file.path(run_dir, "fit.rds"))
+stopifnot(identical(prepared$model, "dd5_piecewise_smr"),
+          !is.null(prepared$stan_data$P_share_centres))
+object <- list(fit=fit, prepared=prepared)
+d <- as.data.table(prepared$data)
+priors <- as.data.frame(prepared$priors)
+spp <- prepared$species
+post <- as.matrix(fit$draws(variables=.si_pw_prediction_vars, format="matrix"))
+object$draws <- post
+set.seed(20261118)
+ids <- sample.int(nrow(post), min(params$n_draws,nrow(post)))
+grids <- list(DD5=seq(0,2500,length.out=151),
+              VPD=seq(0,max(2.5,max(d$VPD)),length.out=151),
+              CMD=seq(0,max(1600,max(d$CMD)),length.out=151))
+prior_sim <- check_si_climate_piecewise_priors(
+  priors, n_draws=params$n_draws, DD5_grid=grids$DD5,
+  VPD_grid=grids$VPD, CMD_grid=grids$CMD, SMR=params$moisture,
+  seed=87, plot=FALSE)
+summarise_curve <- function(x,y,sp) {
+  q <- t(apply(y,2,quantile,probs=c(.05,.5,.95),names=FALSE))
+  data.frame(species=sp,x=x,lower=q[,1],median=q[,2],upper=q[,3])
+}
+curve_theme <- function() theme_bw(base_size=12) +
+  theme(panel.grid.minor=element_blank(),strip.background=element_rect(fill="#edf2f5"))
+curve_plot <- function(variable, prior=FALSE) {
+  rows <- lapply(spp,function(sp) {
+    if(prior) {
+      y <- prior_sim$curves[[sp]][[variable]]
+      if(variable=="CMD") y <- y[[1]]
+    } else {
+      nd <- data.frame(species=sp,DD5=params$DD5,VPD=params$VPD,
+                       CMD=params$CMD,moisture=params$moisture,nutrient=params$nutrient)
+      nd <- nd[rep(1,length(grids[[variable]])),]
+      nd[[variable]] <- grids[[variable]]
+      y <- draw_si_piecewise(object,nd,draw_ids=ids)
+    }
+    summarise_curve(grids[[variable]],y,sp)
+  })
+  tab <- rbindlist(rows)
+  tab[,species:=factor(species,levels=spp)]
+  rug <- data.frame(species=factor(d$species,levels=spp),x=d[[variable]])
+  p <- ggplot(tab,aes(x,median)) +
+    geom_ribbon(aes(ymin=lower,ymax=upper),fill="#0072B2",alpha=.18) +
+    geom_line(colour="#0072B2",linewidth=.65) +
+    facet_wrap(~species,ncol=3) + curve_theme() +
+    labs(x=switch(variable,DD5="DD5 (degree-days)",VPD="Summer VPD (kPa)",CMD="CMD (mm)"),
+         y=if(prior) "Climate multiplier" else "Expected site index (m)") +
+    coord_cartesian(xlim=range(grids[[variable]]),
+      ylim=if(prior) c(0,1) else c(0,max(35,5*ceiling(max(tab$upper)/5))))
+  if(!prior) p <- p + geom_rug(data=rug,aes(x=x),inherit.aes=FALSE,
+                               sides="b",alpha=.06)
+  p
+}
+
+# Adjusted observations retain each draw's observed/predicted SI ratio.
+# Align the horizontal axis for the explicit climate-by-SMR interactions.
+adjust_climate_points <- function(variable, selected=c("Fd","Pl")) {
+  obs <- as.data.frame(d[d$species %in% selected,])
+  draws <- post[ids,,drop=FALSE]
+  getv <- function(v,s) draws[,paste0(v,"[",s,"]")]
+  ref_m <- (params$moisture-3)/3
+  ref_n <- (match(params$nutrient,LETTERS[1:5])-3)/2
+  logmu <- function(s,T,V,D,smr,n) {
+    ramp <- pmin(1,pmax(0,T-200)/(getv("K_gap",s)*exp(getv("c_M",s)*(smr-3)/3)))
+    # .si_pw_log_site accepts scalar CMD; the reference CMD may be draw-specific.
+    site <- .si_pw_log_site(getv,s,n,smr,V,0)
+    loss <- log(2)*(D/(getv("D50",s)*exp(getv("beta_CMD",s)*(smr-3)/3)))^getv("p_CMD",s)
+    getv("log_P",s)+site-loss+
+      log(getv("cold_floor",s)+(1-getv("cold_floor",s))*ramp)
+  }
+  out <- lapply(seq_len(nrow(obs)),function(i) {
+    r <- obs[i,]; s <- match(r$species,spp); orig_m <- (r$moisture-3)/3
+    x <- switch(variable,
+      DD5=if(r$DD5<=200) rep(r$DD5,length(ids)) else
+        200+(r$DD5-200)*exp(getv("c_M",s)*(ref_m-orig_m)),
+      CMD=r$CMD*exp(getv("beta_CMD",s)*(ref_m-orig_m)),
+      VPD=rep(r$VPD,length(ids)))
+    actual <- logmu(s,r$DD5,r$VPD,r$CMD,r$moisture,(r$snr_numeric-3)/2)
+    reference <- logmu(s,if(variable=="DD5") x else params$DD5,
+      if(variable=="VPD") x else params$VPD,
+      if(variable=="CMD") x else params$CMD,params$moisture,ref_n)
+    log_adjusted <- log(r$site_index)+reference-actual
+    stopifnot(all(is.finite(log_adjusted)),
+      max(abs((log_adjusted-reference)-(log(r$site_index)-actual)))<1e-8)
+    if(variable=="CMD") stopifnot(max(abs(
+      x/(getv("D50",s)*exp(getv("beta_CMD",s)*ref_m))-
+      r$CMD/(getv("D50",s)*exp(getv("beta_CMD",s)*orig_m))))<1e-8)
+    data.frame(species=r$species,variable=variable,x=median(x),
+               adjusted=exp(median(log_adjusted)))
+  })
+  result <- rbindlist(out)
+  # Cross-check against the established DD5 adjustment implementation.
+  if(variable=="DD5") {
+    chk <- adjust_si_data_piecewise(object,data=obs[seq_len(min(6,nrow(obs))),],
+      VPD=params$VPD,CMD=params$CMD,moisture=params$moisture,
+      nutrient=params$nutrient,draw_ids=ids)
+    stopifnot(max(abs(result$x[seq_len(nrow(chk))]-chk$DD5_aligned))<1e-8,
+      max(abs(result$adjusted[seq_len(nrow(chk))]-chk$SI_adjusted))<1e-8)
+  }
+  result
+}
+overlay_plot <- function() {
+  selected <- intersect(c("Fd","Pl"),spp)
+  points <- rbindlist(lapply(names(grids),adjust_climate_points,selected=selected))
+  curves <- rbindlist(lapply(names(grids),function(v) {
+    rbindlist(lapply(selected,function(sp) {
+      nd <- data.frame(species=sp,DD5=params$DD5,VPD=params$VPD,CMD=params$CMD,
+                       moisture=params$moisture,nutrient=params$nutrient)
+      nd <- nd[rep(1,length(grids[[v]])),]; nd[[v]] <- grids[[v]]
+      tab <- summarise_curve(grids[[v]],draw_si_piecewise(object,nd,draw_ids=ids),sp)
+      tab$variable <- v; tab
+    }))
+  }))
+  # Zoom to the curve range; report all points outside the display explicitly.
+  ymax <- max(35,5*ceiling(max(curves$upper)/5))
+  counts <- points[,.(Total=.N,Outside_view=sum(x<min(grids[[.BY$variable]]) |
+                x>max(grids[[.BY$variable]]) | adjusted>ymax)),by=.(species,variable)]
+  visible <- points[x>=0 & adjusted<=ymax]
+  visible <- visible[visible$x <= vapply(as.character(visible$variable),
+                                         function(v) max(grids[[v]]),numeric(1))]
+  lab <- c(DD5="DD5 aligned to reference SMR (degree-days)",
+           VPD="Summer VPD (kPa)",CMD="CMD aligned to reference SMR (mm)")
+  for(tab in list(curves,visible)) {
+    tab[,variable:=factor(variable,levels=names(grids))]
+    tab[,species:=factor(species,levels=selected)]
+  }
+  plot <- ggplot(curves,aes(x,median))+
+    geom_ribbon(aes(ymin=lower,ymax=upper),fill="#0072B2",alpha=.18)+
+    geom_point(data=visible,aes(x,adjusted),inherit.aes=FALSE,
+               colour="#555555",alpha=.18,size=.65)+
+    geom_line(colour="#0072B2",linewidth=.7)+
+    facet_grid(species~variable,scales="free_x",labeller=labeller(variable=lab))+
+    coord_cartesian(ylim=c(0,ymax))+curve_theme()+
+    labs(x=NULL,y="Site index (m)",subtitle="Adjusted observations and conditional expected-SI curves")+
+    theme(strip.text.x=element_text(size=8))
+  list(plot=plot,counts=counts)
+}
+edatopic_plot <- function(DD5,VPD,CMD) {
+  species <- intersect(c("Fd","Pl","Cw","Sx","Py","Ss"),spp)
+  nd <- expand.grid(species=species,moisture=0:8,nutrient=LETTERS[1:5],
+                    KEEP.OUT.ATTRS=FALSE,stringsAsFactors=FALSE)
+  nd$DD5 <- DD5; nd$VPD <- VPD; nd$CMD <- CMD
+  y <- draw_si_piecewise(object,nd,draw_ids=ids)
+  q <- t(apply(y,2,quantile,c(.05,.5,.95),names=FALSE))
+  nd$lower <- q[,1]; nd$median <- q[,2]; nd$upper <- q[,3]
+  stopifnot(all(q>=0),all(q<=50))
+  nd$species <- factor(nd$species,levels=species)
+  nd$snr <- match(nd$nutrient,LETTERS[1:5])
+  nd$label <- sprintf("%.1f\n[%.1f, %.1f]",nd$median,nd$lower,nd$upper)
+  ggplot(nd,aes(snr,moisture,fill=median))+
+    geom_tile(colour="white",linewidth=.3)+
+    geom_text(aes(label=label,colour=median>25),size=2.35,lineheight=.95)+
+    scale_colour_manual(values=c("FALSE"="#142b40","TRUE"="white"),guide="none")+
+    scale_fill_gradient(low="#f1f7fb",high="#06466e",limits=c(0,50),name="SI (m)")+
+    scale_x_continuous(breaks=1:5,labels=LETTERS[1:5],expand=c(0,0))+
+    scale_y_reverse(breaks=0:8,expand=c(0,0))+
+    coord_fixed()+facet_wrap(~species,ncol=3)+curve_theme()+
+    labs(x="Soil nutrient regime",y="Soil moisture regime",
+         subtitle=sprintf("DD5 %g | VPD %g kPa | CMD %g mm; median [90%% credible interval]",DD5,VPD,CMD))+
+    theme(legend.position="bottom",panel.grid=element_blank())
+}
+
+bg_col <- intersect(c("BGC","bgc"),names(d))[1]
+bg <- if(!is.na(bg_col)) grepl("^BG",d[[bg_col]]) else rep(FALSE,nrow(d))
+diag <- fit$diagnostic_summary()
+diagvars <- unique(c(.si_pw_prediction_vars,"F_m","rho_P","rho_climate","rho_ed",
+                     "c_M_bar","tau_c_M","log_sigma_bar","tau_log_sigma"))
+ds <- as.data.frame(fit$summary(variables=diagvars))
+```
+
+## Model Summary
+
+The model predicts **expected site index (SI, metres)** from species,
+three climate variables, and soil moisture and nutrient regimes. It uses
+a Bayesian hierarchy to share information among species while retaining
+species-specific response curves. The current fit has **`r nrow(d)`
+records and `r length(spp)` species**. It includes `r sum(bg)` rows in
+BGC units beginning with BG (`r sum(bg & d$site_index < 5)` of these
+have SI below 5 m). These rows supply direct evidence of productivity in
+hot, dry environments; their incremental effect has not been quantified
+by a matched before/after comparison here.
+
+-   **DD5:** productivity rises approximately linearly above 200
+    degree-days and reaches a species-specific plateau. Below 200 it has
+    a small positive floor.
+-   **Summer VPD:** a decreasing sigmoid represents atmospheric moisture
+    stress.
+-   **CMD:** a flexible decreasing exponential represents climatic water
+    deficit.
+-   **SMR (0--8):** productivity peaks at an estimated moisture optimum,
+    with separate rates of decline toward the dry and wet extremes.
+-   **SNR (A--E, coded 1--5):** a quadratic on the log scale allows an
+    interior nutrient optimum, but does not require one.
+
+Expected SI is bounded below 50 m at every site. Individual observations
+retain lognormal residual variation and can exceed 50 m. BGC is retained
+as a data label, **not a predictor or random effect**. PAS, DD18 and
+Eref are not in this model.
+
+### Hierarchy and interactions
+
+| Component              | Structure                                                                            |
+|:-----------------------------------|:-----------------------------------|
+| Species                | Separate climate, edatopic, amplitude and residual parameters; most partially pooled |
+| Cold floor             | Independent species priors in metres; not pooled                                     |
+| DD5 × SMR              | SMR shifts the DD5 value where the plateau begins                                    |
+| CMD × SMR              | SMR shifts the CMD giving a 50% drought multiplier                                   |
+| Nutrient × moisture    | No explicit interaction; their baseline multipliers are separable                    |
+| VPD × other predictors | No explicit interaction term                                                         |
+| BGC / plot             | No BGC or plot-level random effects                                                  |
+
+All components multiply on the SI scale, so the absolute effect of one
+variable depends on the other multipliers even without an explicit
+interaction parameter. SMR is a fixed site attribute in future
+projections. Curves are fitted to spatial climate predictors and should
+not automatically be interpreted as responses to individual-year weather
+anomalies.
+
+## Posterior climate curves {.tabset}
+
+Lines are posterior medians of **expected SI**; ribbons are pointwise
+90% credible intervals, not intervals for individual observations. Each
+variable is varied while the others remain fixed at DD5 =
+`r params$DD5`, VPD = `r params$VPD` kPa, CMD = `r params$CMD` mm, SMR =
+`r params$moisture`, and SNR = `r params$nutrient`. Rugs show each
+species' marginal observed climate values, not observations restricted
+to these reference site conditions. Some plotted combinations are
+outside the joint climate support of the data. The DD5 curve alone has
+no warm decline: in future climates, declining growth arises through VPD
+and CMD.
+
+### DD5
+
+```{r posterior-dd5}
+curve_plot("DD5")
+```
+
+### VPD
+
+```{r posterior-vpd}
+curve_plot("VPD")
+```
+
+### CMD
+
+```{r posterior-cmd}
+curve_plot("CMD")
+```
+
+## Climate curves with adjusted observations
+
+Fd and Pl fitting observations are adjusted draw by draw to the same
+reference conditions used above, preserving their observed-to-expected
+SI ratio:
+
+$$Y_i^{\mathrm{adj},(b)}=Y_i\frac{\mu_{\mathrm{ref},i}^{(b)}}{\mu_{\mathrm{original},i}^{(b)}}.$$
+
+To preserve the explicit SMR interactions, DD5 above 200 is aligned as
+$200+(\mathrm{DD5}-200)\exp[c_s(m_{\mathrm{ref}}-m_i)]$; CMD is aligned
+as $\mathrm{CMD}\exp[\beta_s(m_{\mathrm{ref}}-m_i)]$. VPD needs no
+horizontal adjustment. Other climate predictors and soil conditions are
+held at their reference values in each adjusted panel.
+
+Points show posterior medians of the adjusted coordinates; their
+adjustment uncertainty is not displayed. They are **model-adjusted
+fitting observations**, not independent validation or raw measurements
+at the reference site. Large adjustments can occur where original
+expected SI is very low. The display is zoomed to the curves; counts of
+points outside the displayed range are listed below.
+
+```{r adjusted-observations, fig.width=12, fig.height=7}
+overlays <- overlay_plot()
+print(overlays$plot)
+knitr::kable(overlays$counts)
+```
+
+## Edatopic examples {.tabset}
+
+Each square cell gives posterior median expected SI and its pointwise
+90% credible interval. All panels share the same 0--50 m colour scale.
+These are conditional predictions, including for edatopic positions with
+little or no data. The second climate setting is an illustrative
+warmer/drier comparison, not a specified future scenario or BGC climate.
+
+### Reference climate
+
+```{r edatopic-reference, fig.width=11, fig.height=12}
+edatopic_plot(params$DD5,params$VPD,params$CMD)
+```
+
+### Warmer and drier example
+
+```{r edatopic-warm-dry, fig.width=11, fig.height=12}
+edatopic_plot(2500,1.0,500)
+```
+
+## Prior response curves {.tabset}
+
+These curves simulate the **priors stored with this fit**, not the
+current CSV. Lines and bands are marginal medians and pointwise 90%
+prior intervals. They show climate multipliers, not full prior
+predictive SI including residual variation. The DD5 prior panel uses SMR
+3 (the reference knee); CMD uses SMR `r params$moisture`. The different
+VPD centres and widths encode species-specific prior knowledge. Very
+narrow bands can reflect strong prior constraints.
+
+### DD5
+
+```{r prior-dd5}
+curve_plot("DD5",TRUE)
+```
+
+### VPD
+
+```{r prior-vpd}
+curve_plot("VPD",TRUE)
+```
+
+### CMD
+
+```{r prior-cmd}
+curve_plot("CMD",TRUE)
+```
+
+### Amplitude and edatopic priors
+
+The amplitude and edatopic prior settings are identical across species
+in this fit. The following panels illustrate them using
+`r spp[1]`. The floor and plateau are in metres; soil responses are
+dimensionless multipliers.
+
+```{r prior-soil, fig.height=6}
+ed <- check_si_piecewise_priors(priors,n_draws=params$n_draws,plot=FALSE,seed=88)
+v <- prior_sim$parameter_draws[[spp[1]]]
+e <- ed$parameter_draws[[spp[1]]]
+smr <- seq(0,8,length.out=151)
+snr <- seq(1,5,length.out=151)
+fm <- sapply(smr,function(x) exp(ifelse(x<e$O_M,
+  log(e$r0)*((x-e$O_M)/e$O_M)^2,
+  log(e$r8)*((x-e$O_M)/(8-e$O_M))^2)))
+a <- e$b_NN-log(e$rA); b <- e$b_NN
+qm <- pmax(b-a,b+a); inside <- b<0 & abs(a)< -2*b
+qm[inside] <- -a[inside]^2/(4*b[inside])
+fn <- sapply(snr,function(x) { n <- (x-3)/2; exp(a*n+b*n^2-qm) })
+old <- par(mfrow=c(2,2),mar=c(4,4,2,1))
+hist(v[,"F_m"],breaks=35,col="#cde3ef",border="white",main="Cold floor prior",xlab="F (m)")
+hist(v[,"P"],breaks=35,col="#cde3ef",border="white",main="Plateau prior",xlab="P (m)",xlim=c(0,50))
+panel <- function(x,y,label) {
+ q <- apply(y,2,quantile,c(.05,.5,.95))
+ plot(x,q[2,],type="n",ylim=c(0,1),xlab=label,ylab="Multiplier")
+ polygon(c(x,rev(x)),c(q[1,],rev(q[3,])),col="#cde3ef",border=NA)
+ lines(x,q[2,],col="#0072B2",lwd=2)
+}
+panel(smr,fm,"SMR"); panel(snr,fn,"SNR (1=A, ..., 5=E)")
+par(old)
+```
+
+## Mathematical specification
+
+For observation $i$ of species $s$, write $T=\mathrm{DD5}$,
+$V=\mathrm{VPD}$, $D=\mathrm{CMD}$, $x=\mathrm{SMR}$, $m=(x-3)/3$, and
+$n=(\mathrm{SNR}-3)/2$.
+
+$$
+Y_i\sim\operatorname{Lognormal}\left(\log\mu_i-\tfrac12\sigma_s^2,\sigma_s\right),
+\qquad
+\mu_i=H_s(T,x)\,M_s(x)\,N_s(n)\,V_s(V)\,D_s(D,x).
+$$
+
+This parameterisation makes $E[Y_i\mid\theta]=\mu_i$. The residual log
+SD $\sigma_s$ varies by species, not by climate.
+
+### Climate components
+
+With $0<F_s<P_s<50$ and $G_s>0$,
+
+$$
+K_s(x)=200+G_s e^{c_s m},\qquad
+u_s(T,x)=\min\left(1,\frac{\max(0,T-200)}{G_s e^{c_s m}}\right),
+\qquad H_s(T,x)=F_s+(P_s-F_s)u_s(T,x).
+$$
+
+$F_s$ and $P_s$ are the floor and plateau **before** soil and drought
+reductions. $K_s(3)=200+G_s$ is the reference DD5 knee. The curve is
+continuous with corners at 200 and $K_s(x)$.
+
+$$
+V_s(V)=\operatorname{logit}^{-1}\left(\frac{V50_s-V}{w_s}\right),\qquad
+D_s(D,x)=\exp\left[-\log(2)\left(\frac{D}{D50_s e^{\beta_s m}}\right)^{p_s}\right].
+$$
+
+$V50_s$ is the VPD where its multiplier is 0.5; $w_s>0$ controls decline
+width. $D50_s$ is the corresponding CMD at SMR 3; $p_s>0$ controls
+curvature. Positive $\beta_s$ means moister sites tolerate greater CMD.
+Its sign is estimated.
+
+### Edatopic components
+
+$$
+\log M_s(x)=
+\begin{cases}
+\log r_{0s}\left(\dfrac{x-O_s}{O_s}\right)^2,&x<O_s,\\
+\log r_{8s}\left(\dfrac{x-O_s}{8-O_s}\right)^2,&x\ge O_s.
+\end{cases}
+$$
+
+$O_s\in(0,8)$ is the baseline moisture optimum; $r_{0s},r_{8s}\in(0,1)$
+are productivity ratios at SMR 0 and 8 relative to that optimum.
+Climate--SMR interactions can shift the optimum of the complete SI
+surface away from $O_s$.
+
+$$
+q_s(n)=(b_s-\log r_{As})n+b_s n^2,\qquad
+N_s(n)=\exp\left[q_s(n)-\max_{z\in[-1,1]}q_s(z)\right].
+$$
+
+$r_{As}$ is the A:C productivity ratio; $b_s$ is nutrient curvature.
+Normalising by the continuous maximum ensures $N_s\le1$. All four
+multipliers are at most one, hence $\mu_i\le P_s<50$.
+
+### Partial pooling and priors
+
+Most parameters use a shared-deviation hierarchy on their working scale:
+
+$$
+\theta_{sj}=a_{sj}+b_{sj}
+\left(\sqrt{\rho_j}\,\delta_j+\sqrt{1-\rho_j}\,z_{sj}\right),
+\quad \delta_j,z_{sj}\sim N(0,1),\quad\rho_j\sim\operatorname{Beta}(2,2).
+$$
+
+$a_{sj}$ and $b_{sj}$ are the supplied species prior centre and SD. The
+shared deviation allows species to inform one another while preserving
+each supplied marginal normal prior. This is applied separately to
+$\log G,\log V50,\log w,\log D50,\log p,\beta$ and the five edatopic
+working parameters
+$\operatorname{logit}(O/8),\operatorname{logit}(r_0), \operatorname{logit}(r_8),\log r_A,b$.
+Sharing is across species, with no taxonomic or coastal/interior
+grouping.
+
+The cold floor has an independent normal prior on
+$\operatorname{logit}(F_s/50)$. The plateau uses the shared hierarchy
+for $h_s$, with $P_s=F_s+(50-F_s)\operatorname{logit}^{-1}(h_s)$. Its
+prior centre is calibrated to the supplied plateau median conditional on
+$F_s$ equalling its prior median.
+
+The two remaining hierarchies are
+
+$$
+\begin{aligned}
+c_s&=\bar c+\tau_c z_s,&\bar c&\sim N(0,0.15^2),&\tau_c&\sim\mathrm{HalfNormal}(0.10),\\
+\log\sigma_s&=\ell+\tau_\sigma z'_s,&\ell&\sim N(\log0.25,0.5^2),&
+\tau_\sigma&\sim\mathrm{HalfNormal}(0.35),
+\end{aligned}
+$$
+
+with independent standard-normal $z_s,z'_s$.
+
+## Fit checks and provenance
+
+```{r diagnostic-table}
+knitr::kable(data.frame(
+  Chain=seq_along(diag$num_divergent),
+  Divergences=diag$num_divergent,
+  Treedepth_hits=diag$num_max_treedepth,
+  E_BFMI=round(diag$ebfmi,3)))
+```
+
+Among the response parameters and selected hyperparameters checked here,
+maximum R-hat is `r sprintf('%.4f',max(ds$rhat,na.rm=TRUE))`, minimum
+bulk ESS is `r round(min(ds$ess_bulk,na.rm=TRUE))`, and minimum tail ESS
+is `r round(min(ds$ess_tail,na.rm=TRUE))`. These sampler checks do not
+establish predictive accuracy or reliable extrapolation. This report
+does not perform held-out validation or refit the model.
+
+```{r species-counts}
+counts <- d[,.(Records=.N,Minimum_SI=min(site_index),Maximum_SI=max(site_index)),by=species]
+knitr::kable(counts,digits=2)
+```
+
+Saved run: **`r params$run`**. Priors and fitting observations come from
+its `prepared.rds`; posterior draws come from its `fit.rds`. The model
+equations were checked against the current `site_index_piecewise.stan`
+and plotting calculations use `site_index_piecewise.R`. These source
+files are not archived inside the saved fit folder; keep their versions
+with the report for reproducibility.
+
+```{r provenance}
+files <- c(file.path(run_dir,c("prepared.rds","fit.rds")),
+           file.path(params$project_dir,c("site_index_piecewise.stan","site_index_piecewise.R")))
+knitr::kable(data.frame(File=basename(files),MD5=unname(tools::md5sum(files))))
+```
+
+### Saved prior table
+
+<details>
+
+<summary>Show all species-specific prior settings</summary>
+
+```{r prior-table}
+knitr::kable(priors,digits=4)
+```
+
+</details>
+
+### Re-rendering
+
+This document only reads the saved fit. Change `params$run` to select
+another run, or override reference climate and edatopic conditions when
+rendering:
+
+```{r render-example, eval=FALSE, echo=TRUE}
+rmarkdown::render(
+  "piecewise_report.Rmd",
+  params=list(run="run_3e2816037ba5",moisture=4,nutrient="C",
+              DD5=2000,VPD=0.6,CMD=200)
+)
+```
+
+Requires R packages cmdstanr, posterior (through cmdstanr), data.table,
+ggplot2, knitr and rmarkdown, plus Pandoc (provided by RStudio or
+Quarto).
