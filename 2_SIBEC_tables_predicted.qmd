@@ -45,7 +45,7 @@ require(DBI)
 library(purrr)
 require(tictoc)
 require(tidymodels)
-require(vip)
+#require(vip)
 #require(randomForest)
 library(knitr)
 require(tictoc)
@@ -191,6 +191,7 @@ coast.bgc <- c("CWH", "CDF")
 edatopic.sites2 <- edatopic.sites #|> filter(Zone %in% coast.bgc)
 #  model_family = "meta"
 # species = "Hw"
+tic()
 all_species_grids <- list()
 
 for(model_family in model_families){
@@ -339,11 +340,11 @@ for(model_family in model_families){
   all_species_grids[[model_family]] <- species_grids
 
 }
-
-all_species_grids$bayes <- bayesian_grids$bayes
+toc()
+#all_species_grids$bayes <- bayesian_grids$bayes
 saveRDS(
   all_species_grids,
-  "./edatopic_preds/species_grids_all_models.rds"
+  "./edatopic_preds/species_grids_all_models2.rds"
 )
 ```
 
@@ -354,7 +355,7 @@ saveRDS(
 
 
 ```{r}
-all_species_grids <- readRDS( "./edatopic_preds/species_grids_all_models.rds"
+all_species_grids <- readRDS( "./edatopic_preds/species_grids_all_models2.rds"
 )
 
 meta <- all_species_grids$meta
@@ -546,6 +547,7 @@ compare_grid_plot <- function(
 
 
 ```
+
 ```{r}
 
 ```

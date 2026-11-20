@@ -48,7 +48,7 @@ require(DBI)
 library(purrr)
 require(tictoc)
 require(tidymodels)
-require(vip)
+#require(vip)
 require(randomForest)
 library(knitr)
 require(pdp)
@@ -89,7 +89,7 @@ sibec.interior <- sibec.anal %>% filter(!Zone %in% c("CWH", "MH", "CDF", "CMA"))
 sibec.tst = sibec.anal
 # Step 1: Calculate non-zero SI50 count per TreeSpp
 
-sibec.tst <- sibec.tst %>% filter(rSMR %in% c(3,4), SNR %in% c("2","3"), SlopeGradient <35)
+sibec.tst <- sibec.tst %>% filter(rSMR %in% c(3,4), SNR %in% c("2","3"), SlopeGradient <35)# |> filter(TreeSpp == "Fd")
 
 valid_species <- sibec.tst %>%
   filter(SI50 > 0.5) %>%
@@ -101,7 +101,7 @@ valid_species <- sibec.tst %>%
 sibec.tst <- sibec.tst %>%
   filter(TreeSpp %in% valid_species)
 
-xx <- sibec.tst |> filter(TreeSpp == "Fdc", SI50>0.5)
+xx <- sibec.tst |> filter(TreeSpp == "Fd", SI50>0.5)
 ```
 
 ## Generate boxplots of site index by site series with phases
@@ -113,7 +113,7 @@ SI_spp <- sibec.tst %>% arrange(BGC)#%>% filter(grepl("^SBSmc2", BECSiteUnit))
 SI_spp <- drop_na (SI_spp)
 # Create separate plots for each BGC
 unique_bgcs <- sort(unique(SI_spp$BGC))
-unique_bgcs = "SBSmc2"
+unique_bgcs = "CWHvm1"
 for (bgc in unique_bgcs) {
   # Filter data for the current BGC
   SI_spp_subset <- SI_spp %>% filter(BGC == bgc)
@@ -725,36 +725,70 @@ gam_full_oof <- purrr::map_dfr(
 # Construct final OOF training table for the meta-model
 # ------------------------------------------------------------
 
-meta_oof <- rf_full_oof %>%
+meta_full <- spp_data %>%
+  select(row_id, SI50) %>%
   left_join(
-    xgb_full_oof,
+    rf_full_oof %>% select(row_id, rf),
     by = "row_id"
   ) %>%
   left_join(
-    svm_full_oof,
+    xgb_full_oof %>% select(row_id, xgb),
+    by = "row_id"
+  ) %>%
+  left_join(
+    svm_full_oof %>% select(row_id, svm),
     by = "row_id"
   ) %>%
   left_join(
     gam_full_oof,
     by = "row_id"
-  ) %>%
+  )%>%
   arrange(row_id) %>%
   filter(
     if_all(
       c(SI50, rf, xgb, svm, gam),
       is.finite
     )
+  ) 
+meta_full %>%
+  summarise(
+    rf_R2  = cor(SI50, rf)^2,
+    xgb_R2 = cor(SI50, xgb)^2,
+    svm_R2 = cor(SI50, svm)^2,
+    gam_R2 = cor(SI50, gam)^2
   )
 
+
+# meta_oof <- rf_full_oof %>%
+#   left_join(
+#     xgb_full_oof,
+#     by = "row_id"
+#   ) %>%
+#   left_join(
+#     svm_full_oof,
+#     by = "row_id"
+#   ) %>%
+#   left_join(
+#     gam_full_oof,
+#     by = "row_id"
+#   ) %>%
+#   arrange(row_id) %>%
+#   filter(
+#     if_all(
+#       c(SI50, rf, xgb, svm, gam),
+#       is.finite
+#     )
+#   )
+
 # Defensive checks
-if (nrow(meta_oof) == 0) {
+if (nrow(meta_full) == 0) {
   stop(
     "No complete OOF predictions were available for species: ",
     species
   )
 }
 
-if (anyDuplicated(meta_oof$row_id) > 0) {
+if (anyDuplicated(meta_full$row_id) > 0) {
   stop(
     "Duplicate row_id values occurred in final OOF predictions for: ",
     species
@@ -770,10 +804,10 @@ meta_predictors <- c(
 )
 
 meta_x <- as.matrix(
-  meta_oof[, meta_predictors]
+  meta_full[, meta_predictors]
 )
 
-meta_y <- meta_oof$SI50
+meta_y <- meta_full$SI50
 
 # ------------------------------------------------------------
 # Fit final meta learner using OOF predictions only
@@ -782,11 +816,23 @@ meta_y <- meta_oof$SI50
 set.seed(123)
 
 meta_glmnet_final <- glmnet::cv.glmnet(
-  x = meta_x,
-  y = meta_y,
-  family = "gaussian",
-  standardize = TRUE
+  x = as.matrix(
+    meta_full[, c(
+      "rf",
+      "xgb",
+      "svm",
+      "gam"
+    )]
+  ),
+  y = meta_full$SI50
 )
+
+# meta_glmnet_final <- glmnet::cv.glmnet(
+#   x = meta_x,
+#   y = meta_y,
+#   family = "gaussian",
+#   standardize = TRUE
+# )
 
 # ------------------------------------------------------------
 # Fit each base model once using all species observations

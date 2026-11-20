@@ -85,9 +85,9 @@ bgc.grid.pts <- fread("D:/OneDrive - Government of BC/CommonTables/BGCv13_3_2km_
 AMAT
 Off-site trials
 ```{r}
-amat.sibec <- fread("./data/AMAT_SI50_for_SIBEC.csv") %>% mutate(rSMR = as.numeric(MoistureRegime), SNR = as.character(NutrientRegime), purpose = "amat") %>% filter(SI50>0) |> select(-MoistureRegime, -NutrientRegime)
-
-sibec.anal <- bind_rows(sibec.anal, amat.sibec)
+# amat.sibec <- fread("./data/AMAT_SI50_for_SIBEC.csv") %>% mutate(rSMR = as.numeric(MoistureRegime), SNR = as.character(NutrientRegime), purpose = "amat") %>% filter(SI50>0) |> select(-MoistureRegime, -NutrientRegime)
+# 
+# sibec.anal <- bind_rows(sibec.anal, amat.sibec)
 ```
 
 ## Synthetic data to bound edaphic space (SMR 0 and SMR8)

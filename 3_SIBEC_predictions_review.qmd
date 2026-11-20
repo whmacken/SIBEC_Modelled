@@ -56,7 +56,7 @@ library(forcats)
 ##Import Edatopic Predictions generated in SIBEC_tables_predicted script
 
 ```{r}
-all_species_grids <- readRDS( "./edatopic_preds/species_grids_all_models.rds")
+all_species_grids <- readRDS( "./edatopic_preds/species_grids_all_models2.rds")
 bayesian_grid <- readRDS("./models/species_grids_bayesian.rds")
 all_species_grids$bayes <- bayesian_grid
 library(dplyr)
@@ -141,34 +141,114 @@ bgc_climate <- sibec.anal %>%
 Plot examples of SI for species by BGC for all models
 
 ```{r}
-tree.choose = "Fd" ; bgc.choose = "^SBS|^ICH|^IDF" #"^CWH|^IDF" #"CWH" ## "^SBS|^ICH|^IDF" # "^ESSF|^MH|^BAFA"^IDF|^ICH|^SBS|
+tree.choose = "Fd" ; bgc.choose = "^CWH"#|^ICH|^IDF|^CWH"
+model.emphasize <- c("BAYES", "STACK")
+
+#"^CWH|^IDF" #"CWH" ## "^SBS|^ICH|^IDF" # "^ESSF|^MH|^BAFA"^IDF|^ICH|^SBS|
 tree_dat <- plot_dat %>%
   filter(    TreeSpp == tree.choose,
     grepl(bgc.choose, BGC)  )
 bgc_order <- tree_dat %>%
-  filter(Model == "RF") %>%  arrange(SI50) %>%  pull(BGC)
+  filter(Model == "META") %>%  arrange(SI50) %>%  pull(BGC)
 tree_dat <- tree_dat %>%
   mutate(BGC = factor(BGC,levels = bgc_order)) %>%
   arrange(Model, BGC)
-ggplot( tree_dat,
-  aes(x = BGC,  y = SI50, colour = Model, group = Model)) +
-  geom_line(linewidth = 0.7,alpha = 0.8) +
-  geom_point( size = 1.8) +
+
+
+
+ggplot(
+  tree_dat,
+  aes(
+    x = BGC,
+    y = SI50,
+    colour = Model,
+    group = Model
+  )
+) +
+  geom_line(
+    aes(
+      linewidth = Model == model.emphasize,
+      alpha = Model == model.emphasize
+    )
+  ) +
+  geom_point(
+    aes(
+      size = Model == model.emphasize,
+      alpha = Model == model.emphasize
+    )
+  ) +
+  scale_linewidth_manual(
+    values = c(
+      `FALSE` = 0.6,
+      `TRUE` = 1.4
+    ),
+    guide = "none"
+  ) +
+  scale_size_manual(
+    values = c(
+      `FALSE` = 1.5,
+      `TRUE` = 2.7
+    ),
+    guide = "none"
+  ) +
+  scale_alpha_manual(
+    values = c(
+      `FALSE` = 0.45,
+      `TRUE` = 1
+    ),
+    guide = "none"
+  ) +
+  scale_y_continuous(
+    breaks = scales::breaks_width(2),
+    minor_breaks = scales::breaks_width(1)
+  ) +
   labs(
     x = "BGC",
     y = "Predicted site index (SI50)",
-    title = paste(tree.choose, " SI50 at rSMR 4 and SNR C"),
-    colour = "Model") +
+    title = paste(
+      tree.choose,
+      "SI50 at rSMR 4 and SNR C"
+    ),
+    colour = "Model"
+  ) +
   theme_bw() +
   theme(
     axis.text.x = element_text(
-      size = 6,
+      size = 8,
       angle = 90,
       vjust = 0.5,
-      hjust = 1),
-    panel.grid.minor = element_blank())
+      hjust = 1
+    ),
+    panel.grid.major.y = element_line(
+      colour = "grey75",
+      linewidth = 0.4
+    ),
+    panel.grid.minor.y = element_line(
+      colour = "grey90",
+      linewidth = 0.25
+    ),
+    panel.grid.minor.x = element_blank()
+  )
 
 ```
+
+```{r}
+meta_bayes_diff <- tree_dat %>%
+  filter(Model %in% c("META", "BAYES")) %>%
+  select(BGC, Model, SI50) %>%
+  tidyr::pivot_wider(
+    names_from = Model,
+    values_from = SI50
+  ) %>%
+  mutate(
+    Difference = META - BAYES,
+    Abs_Difference = abs(Difference)
+  ) %>%
+  arrange(desc(Abs_Difference))
+
+meta_bayes_diff
+```
+
 compare SI across all models and species for individual BGC zonals.
 We might be able to assess how well models are doing by examining the co-occurence of species in natural plots where shade-intolerant species with similar high SI will co-occur and others will be excluded.
 
