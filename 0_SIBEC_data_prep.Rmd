@@ -264,7 +264,7 @@ source("./_functions/add_sibec_attributes.R")
 #   vars.choose = 
 #       list_vars()
 #     )
-rules_table = fread("./inputsGit/aSMR_Rules_HalfStep_v11_09Dec2019.csv")
+rules_table = fread("./inputs/aSMR_Rules_HalfStep_v13_23June2025.csv")
 sibec.anal2 <- add_predictors_sibec(
   sibec.anal,
   add_asmr = TRUE,
