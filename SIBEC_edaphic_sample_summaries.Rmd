@@ -16,7 +16,7 @@ require(DBI)
 library(purrr)
 require(tictoc)
 require(tidymodels)
-require(vip)
+#require(vip)
 require(randomForest)
 library(knitr)
 library(stringr)
@@ -148,7 +148,7 @@ sibec.summary <- sibec.anal2 |>
   ) |>
   arrange(BGC, TreeSpp, rSMR, SNR)
 
-xx <- sibec.summary |> filter(n>2, TreeSpp == "Pl")
+xx <- sibec.summary |> filter(n>2, TreeSpp == "Fd")
 ```
 
 ```{r pressure, echo=FALSE}
@@ -189,8 +189,8 @@ best_bgc
 
 edatopic.sum %>%
   filter(
-    TreeSpp == "Sx",
-    BGC == "SBSmc2"
+    TreeSpp == "Fd",
+    BGC == "CWHxm1"
   ) %>%
   ggplot(
     aes(
@@ -217,8 +217,8 @@ edatopic.sum %>%
 source("./_functions/bgc_edatopic_si50.R")
 bgc_edatopic_si50(
     data  = sibec.anal2,
-    species = "Sx",
-    bgc = "SBSmc2",
+    species = "Fdc",
+    bgc = "CWHdm1",
     min_cell_n = 4,
     plot = TRUE
 )
