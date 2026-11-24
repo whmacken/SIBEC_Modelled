@@ -64,15 +64,15 @@ library(purrr)
 library(ggplot2)
 
 # Models to compare
-model_names <- c(
-  "rf",
-  "xgb",
-  "svm",
-  "gam",
-  "stack",
-  "meta",
-  "bayes"
-)
+# model_names <- c(
+#   "rf",
+#   "xgb",
+#   "svm",
+#   "gam",
+#   "stack",
+#   "meta",
+#   "bayes"
+# )
 
 model_names <- names(all_species_grids)
 
@@ -176,7 +176,7 @@ Compare multiple models for species in a single BGC
 See impact of models and maybe help decide on best model choice and model issues.
 
 ```{r}
-bgc.choose <- "CDFmm"
+bgc.choose <- "SBSdk"
 
 bgc_dat <- plot_dat %>%
   filter(BGC == bgc.choose)
@@ -237,12 +237,12 @@ Expect that the dominant shade intolerant species should be fairly close in domi
 
 Could then check a change is relationship between species between 1961-1990 and current time period to support species additions now and then future trajectories to see either critical fails or increasing spread of SI
 ```{r}
-model.choose <- c("BAYES","RF")
+model.choose <- c("BAYES","RF","GAM","STACK")
 # bgc.choose <- "^CWH|^ICH|^SBS"
 # test.spp <- c("Fd", "Ss", "Ba", "Hw", "Cw", "Hw", "At")
 # tree.orderby = "Fd"
 bgc.choose <- "^SBS"#|^ICH|^SBS|^BG|^BWBS"
-test.spp <- c("Sx", "Bl", "Py", "Lw", "At", "Pl","Fd", "Pw")
+test.spp <- c("Sx", "Bl", "Py", "Lw", "At", "Pl","Fd", "Pw","Cw")
 tree.orderby = "Pl"
 model_dat <- plot_dat %>%
   filter(
@@ -298,6 +298,48 @@ ggplot(
     ),
     panel.grid.minor = element_blank()
   )
+
+#########kiri################
+setDT(model_dat)
+temp <- model_dat[TreeSpp %in% c("Pl", "Lw", "Fd", "Py","Cw"),]
+
+ggplot(
+  temp,
+  aes(
+    x = BGC,
+    y = SI50,
+    colour = Model,
+    group = Model
+  )
+) +
+  geom_line(
+    linewidth = 0.7,
+    alpha = 0.8
+  ) +
+  geom_point(size = 1.8) +
+  labs(
+    x = "BGC",
+    y = "Predicted site index (SI50)",
+    title = paste(
+      model.choose,
+      "SI50 at rSMR 4 and SNR C organized by Pl SI50"
+    ),
+    colour = "Model"
+  ) +
+  facet_wrap(~TreeSpp)+
+  theme_bw() +
+  theme(
+    axis.text.x = element_text(
+      size = 6,
+      angle = 90,
+      vjust = 0.5,
+      hjust = 1
+    ),
+    panel.grid.minor = element_blank()
+  )
+
+ggsave("Species_Comparison.png", height = 8, width = 8)
+
 ```
 
 Organize single species by climate metric

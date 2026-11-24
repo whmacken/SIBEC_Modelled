@@ -51,6 +51,7 @@ library(knitr)
 require(tictoc)
 require(stacks)
 library(forcats)
+library(mgcv)
 ```
 
 ##Import SIBEC data
@@ -193,7 +194,7 @@ edatopic.sites2 <- edatopic.sites #|> filter(Zone %in% coast.bgc)
 # species = "Hw"
 all_species_grids <- list()
 
-for(model_family in model_families){
+for(model_family in model_families[-c(1:3)]){
 
   cat(model_family, "\n")
 
@@ -263,10 +264,10 @@ for(model_family in model_families){
       new_data = edatopic.sites2
     )$.pred
 
-    # gam_pred <- predict(
-    #   model$gam,
-    #   newdata = edatopic.sites2
-    # )
+    gam_pred <- predict(
+      model$gam,
+      newdata = edatopic.sites2
+    )
     gam = predict(
         model$gam,
         newdata = edatopic.sites2,
