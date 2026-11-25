@@ -136,7 +136,7 @@ adjust_climate_points <- function(variable, selected=c("Fd","Pl")) {
   result
 }
 overlay_plot <- function() {
-  selected <- intersect(c("Fd","Pl"),spp)
+  selected <- intersect(c("Fd","Pl", "Lw"),spp)
   points <- rbindlist(lapply(names(grids),adjust_climate_points,selected=selected))
   curves <- rbindlist(lapply(names(grids),function(v) {
     rbindlist(lapply(selected,function(sp) {

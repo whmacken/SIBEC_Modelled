@@ -87,10 +87,10 @@ This script can be run a single time for any version of the models and then comm
 ## Predict with Bayesian model
 
 ```{r}
-source("../SIBayes/site_index_piecewise.R")
-run_dir <- "../SIBayes/si_fits_piecewise/run_3e2816037ba5/"
+source("BayesianModel/site_index_piecewise_v2.R")
+run_dir <- "si_fits_piecewise_v2/run_e01c21ac90e/"
 
-fit_bayes <- list(
+fit_piecewise <- list(
   fit      = readRDS(file.path(run_dir, "fit.rds")),
   prepared = readRDS(file.path(run_dir, "prepared.rds"))
 )
@@ -103,7 +103,7 @@ val_dat <- unique(val_dat)
 setnames(val_dat, c("BGC", "moisture", "nutrient", "DD5", "CMD", "VPD"))
 val_dat <- unique(val_dat)
 
-preds_bayes <- predict_si_validation_piecewise(fit_bayes, val_dat)
+preds_bayes <- predict_si_validation_piecewise_v2(fit_piecewise, val_dat)
 
 library(data.table)
 
@@ -168,7 +168,7 @@ make_bayes_grids <- function(predictions) {
 }
 
 bayesian_grids <- make_bayes_grids(preds_bayes)
-saveRDS(bayesian_grids$bayes, "models/species_grids_bayesian.rds")
+saveRDS(bayesian_grids$bayes, "models/species_grids_bayesian_v2.rds")
 
 
 ```

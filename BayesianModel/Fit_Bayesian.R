@@ -15,7 +15,7 @@ sibec.tst <- sibec.anal
 valid_species <- sibec.tst %>%
   filter(SI50 > 0.5) %>%
   count(TreeSpp) %>%
-  filter(n >= 50) %>%
+  filter(n >= 20) %>%
   pull(TreeSpp)
 
 # Step 2: Filter main dataset to retain only those species
@@ -44,6 +44,30 @@ fit_dat <- rbind(fit_dat, tmp)
 #   cex = 0.4,
 #   col = adjustcolor("steelblue", alpha.f = 0.25)
 # )
+
+###piecewise with DD5:CMD interaction
+source("BayesianModel/site_index_piecewise_v2.R")
+p <- data.table::fread("BayesianModel/piecewise_priors.csv")
+setnames(fit_dat, c("plotnum", "bgc", "site_index", "species", "moisture", "nutrient","DD5","CMD","VPD", "PAS", "DD18", "Eref"))
+
+##make sure we have the same species in the data and in the priors
+fit_dat <- fit_dat[species %in% p$species,]
+p <- p[species %in% unique(fit_dat$species),]
+
+##prep the data
+prepared_piecewise <- prepare_si_data_piecewise_v2(fit_dat,p, gamma_CMD_mean=0, gamma_CMD_mean_sd=.25, gamma_CMD_tau_sd=.20)
+##fit!
+fit_piecewise <- fit_si_piecewise_v2(prepared_piecewise)
+
+plot_si_curves_piecewise_v2(fit_piecewise,variable="DD5",species=c("Pl","Fd","Sx", "Py"),VPD=0.6,CMD=200,
+                         moisture=4,nutrient="C",observations=TRUE, xlim = c(0,2500))
+plot_si_curves_piecewise_v2(fit_piecewise,variable="CMD",species=c("Pl","Fd","Sx", "Py"), DD5 = 1200,VPD=0.2,
+                         moisture=4,nutrient="C")
+for (temperature in c(500,1500,2500)) {
+  plot_si_curves_piecewise_v2(fit_piecewise,variable='CMD',
+                              species=c('Fd','Lw'),DD5=temperature,VPD=.6,moisture=4,nutrient='C')
+}
+
 
 ###piecewise fit
 source("BayesianModel/fitting_functions.R")

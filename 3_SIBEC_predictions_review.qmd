@@ -56,9 +56,10 @@ library(forcats)
 ##Import Edatopic Predictions generated in SIBEC_tables_predicted script
 
 ```{r}
-all_species_grids <- readRDS( "./edatopic_preds/species_grids_all_models2.rds")
-bayesian_grid <- readRDS("./models/species_grids_bayesian.rds")
+all_species_grids <- readRDS( "./edatopic_preds/species_grids_all_models.rds")
+bayesian_grid <- readRDS("./models/species_grids_bayesian_v2.rds")
 all_species_grids$bayes <- bayesian_grid
+#all_species_grids$bayes <- bayesian_grids$bayes
 library(dplyr)
 library(purrr)
 library(ggplot2)
@@ -149,7 +150,7 @@ tree_dat <- plot_dat %>%
   filter(    TreeSpp == tree.choose,
     grepl(bgc.choose, BGC)  )
 bgc_order <- tree_dat %>%
-  filter(Model == "META") %>%  arrange(SI50) %>%  pull(BGC)
+  filter(Model == "STACK") %>%  arrange(SI50) %>%  pull(BGC)
 tree_dat <- tree_dat %>%
   mutate(BGC = factor(BGC,levels = bgc_order)) %>%
   arrange(Model, BGC)
@@ -311,6 +312,7 @@ ggplot(
     panel.grid.minor = element_blank()
   )
 ```
+
 #Single model output for multiple species across multiple BGC organized by chosen species SI50
 Could compare this result against actual species occurrence in BGCs.
 Expect that the dominant shade intolerant species should be fairly close in dominant SI and those with significantly lower SI will not appear in natural stands.
@@ -338,9 +340,14 @@ bgc_order <- model_dat %>%
   pull(BGC) %>%
   unique()
 
+setDT(model_dat)
+setDT(bgc_climate)
+setorder(bgc_climate, DD5_an)
+temp <- bgc_climate[BGC %in% model_dat$BGC]
+
 model_dat <- model_dat %>%
   mutate(
-    BGC = factor(BGC, levels = bgc_order)
+    BGC = factor(BGC, levels = temp$BGC)
   ) %>%
   arrange(TreeSpp, BGC)
 
@@ -408,6 +415,7 @@ ggplot(
   ) +
   facet_wrap(~TreeSpp)+
   theme_bw() +
+  ylim(0,30) +
   theme(
     axis.text.x = element_text(
       size = 6,
@@ -417,8 +425,10 @@ ggplot(
     ),
     panel.grid.minor = element_blank()
   )
+```
 
-ggsave("Species_Comparison.png", height = 8, width = 8)
+```{r}
+ggsave("Species_Comparison_v1.png", height = 8, width = 8)
 
 ```
 
@@ -427,7 +437,7 @@ Look for single metric relationship to SI50. Possibly find climate surface probl
 ```{r}
 tree.choose <- "Fd"
 bgc.choose <- "^IDF|^ICH|^SBS|^BG|^BWBS"
-climate.choose <- "DD5_an"
+climate.choose <- "CMD.adj"
 
 tree_dat <- plot_dat %>%
   filter(
